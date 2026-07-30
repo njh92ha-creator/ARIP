@@ -1,0 +1,2 @@
+"""ARIP domain model."""
+

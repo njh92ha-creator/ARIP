@@ -1,0 +1,31 @@
+import { Navigate, Route, Routes } from 'react-router-dom'
+import { AppShell } from './layout/AppShell'
+import { DashboardPage } from './pages/DashboardPage'
+import { EventDetailPage, EventListPage } from './pages/EventPages'
+import { JournalPage } from './pages/JournalPage'
+import { LoginPage } from './pages/LoginPage'
+import { RiskDetailPage, RiskListPage } from './pages/RiskPages'
+import { SettingsPage } from './pages/SettingsPage'
+import { UploadPage } from './pages/UploadPage'
+import { VariancePage } from './pages/VariancePage'
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route element={<AppShell />}>
+        <Route index element={<DashboardPage />} />
+        <Route path="risks" element={<RiskListPage />} />
+        <Route path="risks/:riskId" element={<RiskDetailPage />} />
+        <Route path="events" element={<EventListPage />} />
+        <Route path="events/:eventId" element={<EventDetailPage />} />
+        <Route path="journals" element={<JournalPage />} />
+        <Route path="account-variance" element={<VariancePage />} />
+        <Route path="uploads" element={<UploadPage />} />
+        <Route path="settings" element={<SettingsPage />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  )
+}
+
