@@ -42,6 +42,13 @@ from app.services.import_pipeline import normalize_general_ledger, normalize_set
 from app.services.mapping import propose_mapping
 from app.services.orchestrator import process_journals
 from app.services.variance import analyze_variance
+from app.services.closing_analysis import (
+    analyze_closing_analysis_set,
+    attach_general_ledger,
+    attach_settlement_schedule,
+    create_closing_analysis_set,
+    settlement_balances_from_rows,
+)
 
 router = APIRouter()
 _RUNTIME_SETTINGS_PATH = Path(os.getenv("ARIP_RUNTIME_SETTINGS_PATH", "/app/data/runtime_settings.json"))
@@ -372,7 +379,6 @@ def propose(
         proposal = propose_mapping(
             path,
             source_type,
-            force_sheet="Sheet3" if source_type == "GENERAL_LEDGER" else None,
         )
         return encode(proposal)
     finally:
@@ -416,6 +422,175 @@ def list_mapping_profiles(company_id: UUID, source_type: str | None = None) -> A
             and (not source_type or profile.source_type == source_type)
         ]
     )
+
+
+@router.post("/closing-analysis-sets", status_code=201)
+def create_close_analysis_set(
+    company_id: UUID = Form(...),
+    fiscal_year: int = Form(...),
+    fiscal_period: int = Form(...),
+    user: CurrentUser = Depends(require_roles(Role.CLOSING_MANAGER, Role.ADMIN)),
+) -> Any:
+    _entity(repository.companies, company_id, "company")
+    closing_set = create_closing_analysis_set(
+        repository, company_id, fiscal_year, fiscal_period
+    )
+    repository.append_audit(
+        AuditLogEntry(
+            action="CLOSING_ANALYSIS_SET_OPENED",
+            resource_type="ClosingAnalysisSet",
+            resource_id=str(closing_set.id),
+            actor=user.user_id,
+            company_id=company_id,
+        )
+    )
+    return encode(closing_set)
+
+
+@router.get("/closing-analysis-sets")
+def list_closing_analysis_sets(
+    company_id: UUID,
+    fiscal_year: int | None = None,
+) -> Any:
+    return encode(
+        sorted(
+            (
+                item
+                for item in repository.closing_analysis_sets.values()
+                if item.company_id == company_id
+                and (fiscal_year is None or item.fiscal_year == fiscal_year)
+            ),
+            key=lambda item: (item.fiscal_year, item.fiscal_period),
+            reverse=True,
+        )
+    )
+
+
+@router.get("/closing-analysis-sets/{closing_analysis_set_id}")
+def get_closing_analysis_set(closing_analysis_set_id: UUID) -> Any:
+    closing_set = _entity(
+        repository.closing_analysis_sets, closing_analysis_set_id, "closing analysis set"
+    )
+    findings = [
+        finding
+        for finding in repository.cross_analysis_findings.values()
+        if finding.closing_analysis_set_id == closing_set.id
+    ]
+    return encode(
+        {
+            "closingAnalysisSet": closing_set,
+            "journalLineCount": len(repository.lines_for_set(closing_set.id)),
+            "settlementBalanceCount": len(repository.settlement_for_set(closing_set.id)),
+            "crossFindings": findings,
+        }
+    )
+
+
+@router.post("/closing-analysis-sets/{closing_analysis_set_id}/general-ledger")
+def attach_closing_general_ledger(
+    closing_analysis_set_id: UUID,
+    mapping_profile_id: UUID = Form(...),
+    file: UploadFile = File(...),
+    user: CurrentUser = Depends(require_roles(Role.CLOSING_MANAGER, Role.ADMIN)),
+) -> Any:
+    closing_set = _entity(
+        repository.closing_analysis_sets, closing_analysis_set_id, "closing analysis set"
+    )
+    profile = _entity(repository.mapping_profiles, mapping_profile_id, "mapping profile")
+    if (
+        profile.company_id != closing_set.company_id
+        or profile.source_type != "GENERAL_LEDGER"
+        or profile.status != MappingStatus.APPROVED
+    ):
+        raise HTTPException(422, "approved general ledger mapping profile required")
+    path = _save_upload(file)
+    try:
+        lines, reconciliation = normalize_general_ledger(
+            path, closing_set.company_id, profile, set(repository.processed_source_hashes)
+        )
+        if not reconciliation.balanced:
+            return {
+                "status": "FAILED",
+                "stage": "GENERAL_LEDGER_RECONCILIATION",
+                "reconciliation": encode(reconciliation),
+            }
+        mismatched_periods = [
+            line
+            for line in lines
+            if line.fiscal_year != closing_set.fiscal_year
+            or line.fiscal_period != closing_set.fiscal_period
+        ]
+        if mismatched_periods:
+            raise HTTPException(
+                422, "general ledger fiscal year/period does not match closing analysis set"
+            )
+        closing_set = attach_general_ledger(
+            repository, closing_set, lines, mapping_profile_id=profile.id
+        )
+        return encode(
+            {
+                "status": closing_set.status.value,
+                "closingAnalysisSet": closing_set,
+                "reconciliation": reconciliation,
+                "acceptedRows": len(lines),
+            }
+        )
+    finally:
+        path.unlink(missing_ok=True)
+
+
+@router.post("/closing-analysis-sets/{closing_analysis_set_id}/settlement-schedule")
+def attach_closing_settlement_schedule(
+    closing_analysis_set_id: UUID,
+    mapping_profile_id: UUID = Form(...),
+    file: UploadFile = File(...),
+    user: CurrentUser = Depends(require_roles(Role.CLOSING_MANAGER, Role.ADMIN)),
+) -> Any:
+    closing_set = _entity(
+        repository.closing_analysis_sets, closing_analysis_set_id, "closing analysis set"
+    )
+    profile = _entity(repository.mapping_profiles, mapping_profile_id, "mapping profile")
+    if (
+        profile.company_id != closing_set.company_id
+        or profile.source_type != "SETTLEMENT_SCHEDULE"
+        or profile.status != MappingStatus.APPROVED
+    ):
+        raise HTTPException(422, "approved settlement schedule mapping profile required")
+    path = _save_upload(file)
+    try:
+        period = f"{closing_set.fiscal_year:04d}-{closing_set.fiscal_period:02d}"
+        rows = normalize_settlement(path, profile, upload_period=period)
+        balances = settlement_balances_from_rows(
+            closing_set.company_id, rows, closing_set.fiscal_year, closing_set.fiscal_period
+        )
+        closing_set = attach_settlement_schedule(
+            repository, closing_set, balances, mapping_profile_id=profile.id
+        )
+        return encode(
+            {
+                "status": closing_set.status.value,
+                "closingAnalysisSet": closing_set,
+                "acceptedRows": len(balances),
+            }
+        )
+    finally:
+        path.unlink(missing_ok=True)
+
+
+@router.post("/closing-analysis-sets/{closing_analysis_set_id}/analyze")
+def analyze_closing_set(
+    closing_analysis_set_id: UUID,
+    user: CurrentUser = Depends(require_roles(Role.CLOSING_MANAGER, Role.ADMIN)),
+) -> Any:
+    try:
+        return analyze_closing_analysis_set(
+            repository,
+            closing_analysis_set_id,
+            actor=user.user_id,
+            knowledge_candidates=knowledge_candidates,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.post("/imports/general-ledger")
@@ -534,7 +709,7 @@ def variance_dashboard(company_id: UUID, period: str | None = None) -> Any:
     ]
     exposure = sum((abs(item.delta_amount) for item in items), Decimal("0"))
     return {
-        "riskSeparation": "INDEPENDENT_FROM_AUDIT_RISK",
+        "riskSeparation": "QUANTITATIVE_SIGNAL_LINKED_TO_AUDIT_RISK",
         "flaggedAccounts": len({item.account_code for item in items}),
         "exposureAmount": str(exposure),
         "observations": encode(items),
@@ -566,11 +741,17 @@ def list_risks(company_id: UUID) -> Any:
 @router.get("/risks/{risk_id}")
 def get_risk(risk_id: UUID) -> Any:
     risk = _entity(repository.risks, risk_id, "risk")
-    if payload.expected_version != risk.row_version:
-        raise HTTPException(409, "optimistic lock conflict")
     return {
         **encode(risk),
         "memory": encode(repository.risk_memory.get(risk.id, [])),
+        "crossFindings": encode(
+            [
+                finding
+                for finding in repository.cross_analysis_findings.values()
+                if risk.id in finding.linked_risk_ids
+                or finding.id in risk.cross_finding_ids
+            ]
+        ),
     }
 
 
@@ -601,6 +782,7 @@ def transition_risk(
     previous = risk.status
     risk.status = target
     risk.row_version += 1
+    repository.save(risk)
     repository.append_memory(
         RiskMemoryEntry(
             risk_id=risk.id,

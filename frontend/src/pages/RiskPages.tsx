@@ -65,7 +65,7 @@ export function RiskDetailPage() {
   const { data: risk } = useQuery({
     queryKey: ['risk', riskId],
     enabled: Boolean(riskId),
-    queryFn: async () => (await api.get<Risk & { memory: unknown[] }>(`/risks/${riskId}`)).data,
+    queryFn: async () => (await api.get<Risk & { memory: unknown[]; crossFindings: Array<{ id: string; title: string; statement: string; finding_type: string }> }>(`/risks/${riskId}`)).data,
   })
   if (!risk) return <Typography>Risk를 불러오는 중입니다.</Typography>
   return (
@@ -79,6 +79,10 @@ export function RiskDetailPage() {
         <CardContent>
           <Typography variant="h6">Risk Summary</Typography>
           <Typography sx={{ mt: 1 }}>{risk.statement}</Typography>
+          {(risk.crossFindings?.length ?? 0) > 0 && <Box sx={{ mt: 2, p: 2, borderRadius: 1, bgcolor: 'info.lighter' }}>
+            <Typography fontWeight={700}>Closing-set cross-analysis signals</Typography>
+            <List dense>{risk.crossFindings.map((finding) => <ListItem key={finding.id}><ListItemText primary={finding.title} secondary={finding.statement} /></ListItem>)}</List>
+          </Box>}
           {risk.package?.evidence_status === 'EVIDENCE_ENRICHMENT_REQUIRED' && (
             <Box sx={{ mt: 2, p: 2, borderRadius: 1, bgcolor: 'warning.lighter' }}>
               <Typography color="warning.dark" fontWeight={700}>근거보강 필요</Typography>

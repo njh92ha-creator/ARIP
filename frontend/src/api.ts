@@ -23,6 +23,8 @@ export interface Risk {
   route: string
   status: string
   materiality_level: string
+  closing_analysis_set_id?: string
+  cross_finding_ids?: string[]
   package: {
     summary: string
     references: Array<Record<string, string>>
@@ -32,6 +34,7 @@ export interface Risk {
     generated_by: string
     missing_facts: string[]
     evidence_status: string
+    cross_finding_ids?: string[]
   }
 }
 
@@ -44,4 +47,17 @@ export interface AccountingEvent {
   event_hash: string
   classification_confidence: number
   status: string
+  closing_analysis_set_id?: string
+}
+
+export interface ClosingAnalysisSet {
+  id: string
+  company_id: string
+  fiscal_year: number
+  fiscal_period: number
+  general_ledger_ready: boolean
+  settlement_ready: boolean
+  status: 'DRAFT' | 'READY' | 'PROCESSING' | 'COMPLETED' | 'FAILED'
+  reconciliation_status: string
+  analysis_version: number
 }

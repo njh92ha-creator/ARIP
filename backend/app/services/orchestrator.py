@@ -21,6 +21,8 @@ def process_journals(
     actor: str,
     knowledge_candidates: dict[str, dict[str, Any]] | None = None,
     analysis_provider: AnalysisProvider | None = None,
+    external_ai_enabled: bool | None = None,
+    cross_findings: list[Any] | None = None,
 ) -> dict[str, int]:
     for line in lines:
         repo.save(line)
@@ -39,6 +41,7 @@ def process_journals(
     created_risks = 0
     for cluster in cluster_journals(lines):
         candidate = construct_event(cluster)
+        candidate.closing_analysis_set_id = cluster[0].closing_analysis_set_id
         prior_event = repo.event_by_hash(candidate.company_id, candidate.event_hash)
         prior_risk = (
             next(
@@ -52,12 +55,21 @@ def process_journals(
             if prior_event
             else None
         )
-        if prior_event and prior_risk:
+        if (
+            prior_event
+            and prior_risk
+            and set(prior_event.journal_line_ids) == set(candidate.journal_line_ids)
+        ):
             reused_events += 1
             continue
         repo.save(candidate)
         created_events += 1
-        ai_enabled = analysis_provider is not None or settings.enable_external_ai
+        ai_enabled = (
+            analysis_provider is not None
+            or settings.enable_external_ai
+            if external_ai_enabled is None
+            else external_ai_enabled
+        )
         risk = analyze_event(
             candidate,
             materiality,
@@ -70,7 +82,26 @@ def process_journals(
                 references = approved_reference_context(
                     candidate.company_id, knowledge_candidates
                 )
-                analysis = provider.analyze(build_event_facts(candidate, cluster), references)
+                facts = build_event_facts(candidate, cluster)
+                linked_findings = [
+                    finding
+                    for finding in (cross_findings or [])
+                    if set(finding.journal_line_ids).intersection(candidate.journal_line_ids)
+                ]
+                if linked_findings:
+                    facts["crossAnalysisFindings"] = [
+                        {
+                            "id": str(finding.id),
+                            "type": finding.finding_type,
+                            "title": finding.title,
+                            "statement": finding.statement,
+                            "accountCode": finding.account_code,
+                            "amount": str(finding.amount),
+                            "metadata": finding.metadata,
+                        }
+                        for finding in linked_findings
+                    ]
+                analysis = provider.analyze(facts, references)
                 risk = risk_from_ai_analysis(candidate, materiality, analysis, references)
             except Exception:
                 # AI is an analysis enhancement, never an import dependency.  This
@@ -84,6 +115,14 @@ def process_journals(
                     external_ai_available=False,
                 )
         if risk:
+            linked_finding_ids = [
+                finding.id
+                for finding in (cross_findings or [])
+                if set(finding.journal_line_ids).intersection(candidate.journal_line_ids)
+            ]
+            risk.closing_analysis_set_id = candidate.closing_analysis_set_id
+            risk.cross_finding_ids = linked_finding_ids
+            risk.package.cross_finding_ids = linked_finding_ids
             repo.save(risk)
             repo.append_memory(
                 RiskMemoryEntry(

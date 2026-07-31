@@ -111,4 +111,3 @@ def construct_event(lines: list[JournalLine], currency: str = "KRW") -> Accounti
         classification_confidence=confidence,
         status="ROUTED" if confidence >= 0.70 else "REVIEW_REQUIRED",
     )
-

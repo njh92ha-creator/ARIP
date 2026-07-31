@@ -1,101 +1,139 @@
 import { useState } from 'react'
-import { Alert, Box, Button, Card, CardContent, MenuItem, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Card, CardContent, Divider, Stack, TextField, Typography } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
-import { api, Company } from '../api'
+import { api, ClosingAnalysisSet, Company } from '../api'
 
-type Proposal = {
-  sheet_name: string
-  header_row: number
-  mapping: Record<string, string>
-  confidence: Record<string, number>
-  missing_required: string[]
-  signature: string
-}
+type SourceType = 'GENERAL_LEDGER' | 'SETTLEMENT_SCHEDULE'
+type Proposal = { sheet_name: string; header_row: number; mapping: Record<string, string>; missing_required: string[]; signature: string }
+type SourceState = { file?: File; proposal?: Proposal; mapping: string; profileId?: string; attached: boolean }
+
+const emptySource = (): SourceState => ({ mapping: '', attached: false })
+const sourceLabel = (type: SourceType) => type === 'GENERAL_LEDGER' ? 'General Ledger' : 'Settlement Schedule'
 
 export function UploadPage() {
   const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: async () => (await api.get<Company[]>('/companies')).data })
   const company = companies?.[0]
-  const [sourceType, setSourceType] = useState('GENERAL_LEDGER')
-  const [file, setFile] = useState<File>()
-  const [proposal, setProposal] = useState<Proposal>()
-  const [mapping, setMapping] = useState('')
-  const [profileId, setProfileId] = useState('')
-  const [result, setResult] = useState<any>()
-  const [targetPeriod, setTargetPeriod] = useState('2026-07')
-  const [comparison, setComparison] = useState('MOM')
-  const { data: varianceProfiles = [] } = useQuery({
-    queryKey: ['variance-profiles', company?.id],
-    enabled: Boolean(company),
-    queryFn: async () => (await api.get('/variance-settings/profiles', { params: { company_id: company!.id } })).data,
-  })
-  if (!company) return <Alert severity="info">Settings에서 회사를 먼저 등록해 주세요.</Alert>
-  async function propose() {
-    if (!file) return
-    const data = new FormData(); data.append('company_id', company!.id); data.append('source_type', sourceType); data.append('file', file)
-    const response = await api.post('/mapping/propose', data)
-    setProposal(response.data); setMapping(JSON.stringify(response.data.mapping, null, 2))
+  const [year, setYear] = useState(new Date().getFullYear())
+  const [period, setPeriod] = useState(new Date().getMonth() + 1)
+  const [closingSet, setClosingSet] = useState<ClosingAnalysisSet>()
+  const [ledger, setLedger] = useState<SourceState>(emptySource())
+  const [settlement, setSettlement] = useState<SourceState>(emptySource())
+  const [result, setResult] = useState<unknown>()
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  if (!company) return <Alert severity="info">Create company settings before starting an analysis.</Alert>
+  const activeCompany = company
+
+  const getSource = (type: SourceType) => type === 'GENERAL_LEDGER' ? ledger : settlement
+  const setSource = (type: SourceType, value: SourceState) => type === 'GENERAL_LEDGER' ? setLedger(value) : setSettlement(value)
+  const resetScope = () => { setClosingSet(undefined); setLedger(emptySource()); setSettlement(emptySource()); setResult(undefined) }
+
+  async function ensureSet(): Promise<ClosingAnalysisSet> {
+    if (closingSet && closingSet.fiscal_year === year && closingSet.fiscal_period === period) return closingSet
+    const form = new FormData()
+    form.append('company_id', activeCompany.id)
+    form.append('fiscal_year', String(year))
+    form.append('fiscal_period', String(period))
+    const response = await api.post<ClosingAnalysisSet>('/closing-analysis-sets', form)
+    setClosingSet(response.data)
+    return response.data
   }
-  async function approve() {
-    if (!proposal) return
-    const response = await api.post('/mapping/approve', {
-      company_id: company!.id, source_type: sourceType, sheet_name: proposal.sheet_name,
-      header_row: proposal.header_row, source_signature: proposal.signature, mapping: JSON.parse(mapping),
-    })
-    setProfileId(response.data.id)
+
+  async function propose(type: SourceType) {
+    const source = getSource(type)
+    if (!source.file) return
+    setBusy(true); setError('')
+    try {
+      const form = new FormData()
+      form.append('company_id', activeCompany.id)
+      form.append('source_type', type)
+      form.append('file', source.file)
+      const response = await api.post<Proposal>('/mapping/propose', form)
+      setSource(type, { ...source, proposal: response.data, mapping: JSON.stringify(response.data.mapping, null, 2) })
+    } catch (cause: any) {
+      setError(cause?.response?.data?.detail ?? `${sourceLabel(type)} mapping proposal failed.`)
+    } finally { setBusy(false) }
   }
-  async function run() {
-    if (!file || !profileId || sourceType !== 'GENERAL_LEDGER') return
-    const data = new FormData(); data.append('company_id', company!.id); data.append('mapping_profile_id', profileId); data.append('file', file)
-    const response = await api.post('/import-jobs/general-ledger', data)
-    setResult(response.data)
+
+  async function approveAndAttach(type: SourceType) {
+    const source = getSource(type)
+    if (!source.file || !source.proposal) return
+    setBusy(true); setError('')
+    try {
+      const profile = await api.post('/mapping/approve', {
+        company_id: activeCompany.id, source_type: type, sheet_name: source.proposal.sheet_name,
+        header_row: source.proposal.header_row, source_signature: source.proposal.signature,
+        mapping: JSON.parse(source.mapping),
+      })
+      const activeSet = await ensureSet()
+      const form = new FormData()
+      form.append('mapping_profile_id', profile.data.id)
+      form.append('file', source.file)
+      const endpoint = type === 'GENERAL_LEDGER'
+        ? `/closing-analysis-sets/${activeSet.id}/general-ledger`
+        : `/closing-analysis-sets/${activeSet.id}/settlement-schedule`
+      const response = await api.post(endpoint, form)
+      setClosingSet(response.data.closingAnalysisSet)
+      setSource(type, { ...source, profileId: profile.data.id, attached: true })
+      setResult(response.data)
+    } catch (cause: any) {
+      setError(cause?.response?.data?.detail ?? `${sourceLabel(type)} could not be attached to the closing set.`)
+    } finally { setBusy(false) }
   }
-  async function runVariance() {
-    if (!file || !profileId || !varianceProfiles[0]) return
-    const data = new FormData()
-    data.append('company_id', company!.id)
-    data.append('mapping_profile_id', profileId)
-    data.append('variance_profile_id', varianceProfiles[0].id)
-    data.append('target_period', targetPeriod)
-    data.append('comparison', comparison)
-    data.append('file', file)
-    const response = await api.post('/account-variance/jobs', data)
-    setResult(response.data)
+
+  async function analyze() {
+    if (!closingSet || !ledger.attached || !settlement.attached) return
+    setBusy(true); setError('')
+    try {
+      const response = await api.post(`/closing-analysis-sets/${closingSet.id}/analyze`)
+      setResult(response.data)
+      const refreshed = await api.get(`/closing-analysis-sets/${closingSet.id}`)
+      setClosingSet(refreshed.data.closingAnalysisSet)
+    } catch (cause: any) {
+      setError(cause?.response?.data?.detail ?? 'Closing analysis failed.')
+    } finally { setBusy(false) }
   }
-  return <Box>
-    <Typography variant="h4">Excel Upload & Mapping</Typography>
-    <Typography color="text.secondary" sx={{ mt: 1, mb: 3 }}>자동 제안 → 사용자 확인·수정 → Profile 승인 → 정규화 순서입니다.</Typography>
-    <Card><CardContent>
-      <TextField select label="자료 유형" value={sourceType} onChange={(e) => setSourceType(e.target.value)} sx={{ minWidth: 260 }}>
-        <MenuItem value="GENERAL_LEDGER">총계정원장 (Sheet3)</MenuItem><MenuItem value="SETTLEMENT_SCHEDULE">정산표</MenuItem>
-      </TextField>
-      <Button component="label" variant="outlined" sx={{ ml: 2 }}>파일 선택<input hidden type="file" accept=".xlsx" onChange={(e) => setFile(e.target.files?.[0])} /></Button>
-      <Button variant="contained" onClick={propose} disabled={!file} sx={{ ml: 1 }}>매핑 제안</Button>
-      {file && <Typography variant="body2" sx={{ mt: 2 }}>{file.name}</Typography>}
-      {proposal && <Box sx={{ mt: 3 }}>
-        <Alert severity={proposal.missing_required.length ? 'warning' : 'success'}>Sheet: {proposal.sheet_name}, Header: {proposal.header_row}, 누락: {proposal.missing_required.join(', ') || '없음'}</Alert>
-        {sourceType === 'SETTLEMENT_SCHEDULE' && proposal.mapping.period === '__UPLOAD_PERIOD__' && (
-          <Alert severity="info" sx={{ mt: 1 }}>
-            이 정산표에는 기간 열이 없어, AVI 분석 실행 시 입력하는 기준월을 이 파일의 기간으로 사용합니다.
-          </Alert>
-        )}
-        <TextField label="Mapping JSON" multiline minRows={12} value={mapping} onChange={(e) => setMapping(e.target.value)} fullWidth sx={{ mt: 2 }} />
-        <Button variant="contained" onClick={approve} disabled={proposal.missing_required.length > 0} sx={{ mt: 2 }}>Profile 승인</Button>
+
+  function sourceCard(type: SourceType) {
+    const source = getSource(type)
+    const missing = source.proposal?.missing_required ?? []
+    return <Card variant="outlined"><CardContent>
+      <Typography variant="h6">{sourceLabel(type)}</Typography>
+      <Typography color="text.secondary" variant="body2" sx={{ mb: 2 }}>
+        {type === 'GENERAL_LEDGER' ? 'Transaction, account and description evidence for Events and Audit Risk.' : 'Closing balances and variance signals for cross-analysis.'}
+      </Typography>
+      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+        <Button component="label" variant="outlined" disabled={busy}>Select file<input hidden type="file" accept=".xlsx,.xls" onChange={(event) => setSource(type, { ...emptySource(), file: event.target.files?.[0] })} /></Button>
+        <Button variant="contained" disabled={!source.file || busy} onClick={() => propose(type)}>Propose mapping</Button>
+        {source.file && <Typography variant="body2">{source.file.name}</Typography>}
+      </Stack>
+      {source.proposal && <Box sx={{ mt: 2 }}>
+        <Alert severity={missing.length ? 'warning' : 'success'}>Sheet: {source.proposal.sheet_name}; Header: {source.proposal.header_row}; Missing: {missing.join(', ') || 'none'}</Alert>
+        <TextField label="Mapping JSON" multiline minRows={7} fullWidth sx={{ mt: 2 }} value={source.mapping} onChange={(event) => setSource(type, { ...source, mapping: event.target.value })} />
+        <Button variant="contained" sx={{ mt: 2 }} disabled={missing.length > 0 || busy} onClick={() => approveAndAttach(type)}>Approve mapping and attach</Button>
       </Box>}
-      {profileId && <Alert severity="success" sx={{ mt: 2 }}>
-        승인 Profile: {profileId}<br />
-        {sourceType === 'GENERAL_LEDGER' ? (
-          <Button onClick={run}>원장 분석 실행</Button>
-        ) : (
-          <Box sx={{ mt: 1, display: 'flex', gap: 1, alignItems: 'center' }}>
-            <TextField size="small" label="기준월" value={targetPeriod} onChange={(e) => setTargetPeriod(e.target.value)} />
-            <TextField size="small" select label="비교" value={comparison} onChange={(e) => setComparison(e.target.value)} sx={{ width: 120 }}>
-              <MenuItem value="MOM">MoM</MenuItem><MenuItem value="YOY">YoY</MenuItem>
-            </TextField>
-            <Button onClick={runVariance} disabled={!varianceProfiles.length}>AVI 분석 실행</Button>
-          </Box>
-        )}
-      </Alert>}
-      {result && <Box sx={{ mt: 2 }}><Typography variant="h6">처리 결과</Typography><pre>{JSON.stringify(result, null, 2)}</pre></Box>}
+      {source.attached && <Alert severity="success" sx={{ mt: 2 }}>Attached to this Closing Analysis Set.</Alert>}
     </CardContent></Card>
+  }
+
+  const ready = Boolean(closingSet && ledger.attached && settlement.attached)
+  return <Box>
+    <Typography variant="h4">Closing Analysis Set</Typography>
+    <Typography color="text.secondary" sx={{ mt: 1, mb: 3 }}>Analyze the General Ledger and Settlement Schedule together for the same company, fiscal year and month.</Typography>
+    <Card sx={{ mb: 2 }}><CardContent>
+      <Typography variant="h6" sx={{ mb: 2 }}>Scope</Typography>
+      <Stack direction="row" spacing={2}>
+        <TextField label="Fiscal year" type="number" value={year} onChange={(event) => { setYear(Number(event.target.value)); resetScope() }} />
+        <TextField label="Fiscal month" type="number" inputProps={{ min: 1, max: 12 }} value={period} onChange={(event) => { setPeriod(Number(event.target.value)); resetScope() }} />
+      </Stack>
+      {closingSet && <Alert sx={{ mt: 2 }} severity={closingSet.status === 'COMPLETED' ? 'success' : 'info'}>Set {closingSet.fiscal_year}-{String(closingSet.fiscal_period).padStart(2, '0')} | {closingSet.status} | Reconciliation: {closingSet.reconciliation_status}</Alert>}
+    </CardContent></Card>
+    <Stack spacing={2}>{sourceCard('GENERAL_LEDGER')}{sourceCard('SETTLEMENT_SCHEDULE')}</Stack>
+    <Divider sx={{ my: 3 }} />
+    <Button size="large" variant="contained" disabled={!ready || busy} onClick={analyze}>Run closing analysis</Button>
+    {!ready && <Typography color="text.secondary" sx={{ ml: 2, display: 'inline' }}>Attach and approve both source files to run the integrated analysis.</Typography>}
+    {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+    {Boolean(result) && <Box sx={{ mt: 3 }}><Typography variant="h6">Result</Typography><pre>{String(JSON.stringify(result, null, 2))}</pre></Box>}
   </Box>
 }

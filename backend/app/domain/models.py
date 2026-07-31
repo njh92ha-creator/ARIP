@@ -25,6 +25,21 @@ class ImportStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class ClosingAnalysisStatus(StrEnum):
+    DRAFT = "DRAFT"
+    READY = "READY"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+
+class ReconciliationStatus(StrEnum):
+    PENDING = "PENDING"
+    MATCHED = "MATCHED"
+    MISMATCHED = "MISMATCHED"
+    NOT_COMPARABLE = "NOT_COMPARABLE"
+
+
 class AnalysisRoute(StrEnum):
     REUSE_EXACT = "REUSE_EXACT"
     REUSE_WITH_REASSESSMENT = "REUSE_WITH_REASSESSMENT"
@@ -141,6 +156,7 @@ class JournalLine:
     vendor_code: str = ""
     customer_code: str = ""
     source_hash: str = ""
+    closing_analysis_set_id: UUID | None = None
     id: UUID = field(default_factory=uuid4)
 
 
@@ -156,6 +172,7 @@ class AccountingEvent:
     event_hash: str
     classification_confidence: float
     status: str = "REVIEW_REQUIRED"
+    closing_analysis_set_id: UUID | None = None
     id: UUID = field(default_factory=uuid4)
 
 
@@ -169,6 +186,7 @@ class RiskPackage:
     generated_by: str
     missing_facts: list[str] = field(default_factory=list)
     evidence_status: str = "REFERENCE_PENDING"
+    cross_finding_ids: list[UUID] = field(default_factory=list)
     version: int = 1
     id: UUID = field(default_factory=uuid4)
 
@@ -185,6 +203,8 @@ class Risk:
     package: RiskPackage
     status: RiskStatus = RiskStatus.OPEN
     materiality_level: str = "LOW"
+    closing_analysis_set_id: UUID | None = None
+    cross_finding_ids: list[UUID] = field(default_factory=list)
     row_version: int = 1
     id: UUID = field(default_factory=uuid4)
 
@@ -216,6 +236,66 @@ class VarianceObservation:
     triggered_by: list[str]
     checklist: list[str]
     review_status: str = "OPEN"
+    closing_analysis_set_id: UUID | None = None
+    linked_event_ids: list[UUID] = field(default_factory=list)
+    linked_risk_ids: list[UUID] = field(default_factory=list)
+    id: UUID = field(default_factory=uuid4)
+
+
+@dataclass(slots=True)
+class ClosingAnalysisSet:
+    """A paired general-ledger and settlement-schedule analysis for one close."""
+
+    company_id: UUID
+    fiscal_year: int
+    fiscal_period: int
+    general_ledger_mapping_profile_id: UUID | None = None
+    settlement_mapping_profile_id: UUID | None = None
+    general_ledger_ready: bool = False
+    settlement_ready: bool = False
+    status: ClosingAnalysisStatus = ClosingAnalysisStatus.DRAFT
+    reconciliation_status: ReconciliationStatus = ReconciliationStatus.PENDING
+    analysis_version: int = 1
+    last_error: str = ""
+    created_at: datetime = field(default_factory=utcnow)
+    updated_at: datetime = field(default_factory=utcnow)
+    id: UUID = field(default_factory=uuid4)
+
+    @property
+    def is_ready(self) -> bool:
+        return self.general_ledger_ready and self.settlement_ready
+
+
+@dataclass(slots=True)
+class SettlementBalance:
+    company_id: UUID
+    fiscal_year: int
+    fiscal_period: int
+    account_code: str
+    account_name: str
+    category: str
+    amount: Decimal
+    measurement_basis: str
+    closing_analysis_set_id: UUID | None = None
+    id: UUID = field(default_factory=uuid4)
+
+
+@dataclass(slots=True)
+class CrossAnalysisFinding:
+    company_id: UUID
+    closing_analysis_set_id: UUID
+    finding_type: str
+    title: str
+    statement: str
+    severity: str
+    account_code: str = ""
+    account_name: str = ""
+    amount: Decimal = Decimal("0")
+    journal_line_ids: list[UUID] = field(default_factory=list)
+    variance_observation_ids: list[UUID] = field(default_factory=list)
+    linked_event_ids: list[UUID] = field(default_factory=list)
+    linked_risk_ids: list[UUID] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
     id: UUID = field(default_factory=uuid4)
 
 
