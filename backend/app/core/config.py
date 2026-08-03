@@ -27,7 +27,10 @@ class Settings:
     )
     cors_origins: tuple[str, ...] = tuple(
         origin.strip()
-        for origin in os.getenv("ARIP_CORS_ORIGINS", "http://localhost:3000").split(",")
+        for origin in os.getenv(
+            "ARIP_CORS_ORIGINS",
+            "http://localhost:3000,https://arip-frontend.vercel.app",
+        ).split(",")
         if origin.strip()
     )
 
