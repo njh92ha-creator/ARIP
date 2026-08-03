@@ -6,9 +6,14 @@ import {
   Card,
   CardContent,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   FormControlLabel,
   Grid,
   InputAdornment,
+  IconButton,
   MenuItem,
   Radio,
   RadioGroup,
@@ -183,6 +188,12 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function CompanySettings({ companies, company, createCompany }: { companies: Company[]; company?: Company; createCompany: CompanyMutation }) {
+  const queryClient = useQueryClient()
+  const [selectedCompany, setSelectedCompany] = useState<Company | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [managementError, setManagementError] = useState('')
+  const updateCompany = useMutation({ mutationFn: ({ id, payload }: { id: string; payload: Record<string, unknown> }) => api.patch(`/companies/${id}`, payload), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['companies'] }) })
+  const deleteCompany = useMutation({ mutationFn: (id: string) => api.delete(`/companies/${id}`), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['companies'] }) })
   const resetForm = () => (document.getElementById('company-settings-form') as HTMLFormElement | null)?.reset()
   return <Stack spacing={2.5}>
     <Card sx={cardSx}>
@@ -227,8 +238,13 @@ function CompanySettings({ companies, company, createCompany }: { companies: Com
           <Stack direction="row" spacing={1.5}><TextField size="small" placeholder="회사명 또는 코드 검색..." slotProps={{ input: { startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> } }} sx={{ ...smallFieldSx, width: { xs: '100%', sm: 320 } }} /><Button variant="outlined" sx={{ minWidth: 48, p: 1, borderColor: colors.border, color: colors.secondary }}><Refresh /></Button></Stack>
         </Stack>
       </Box>
-      <CompanyTable companies={companies} />
+      <CompanyTable companies={companies} onManage={(item) => { setManagementError(''); setSelectedCompany(item) }} />
     </Card>
+    <CompanyManagementDialog company={selectedCompany} error={managementError} saving={updateCompany.isPending} deleting={deleteCompany.isPending} deleteOpen={confirmDelete} onClose={() => { setSelectedCompany(null); setConfirmDelete(false) }} onRequestDelete={() => setConfirmDelete(true)} onCancelDelete={() => setConfirmDelete(false)} onSave={async (form) => {
+      if (!selectedCompany) return
+      const data = new FormData(form); setManagementError('')
+      try { await updateCompany.mutateAsync({ id: selectedCompany.id, payload: { company_code: data.get('company_code'), company_name: data.get('company_name'), industry: data.get('industry'), functional_currency: data.get('functional_currency'), timezone: data.get('timezone'), fiscal_year_start_month: Number(data.get('fiscal_year_start_month')), close_frequency: 'MONTHLY', month_close_day: Number(data.get('month_close_day')) } }); setSelectedCompany(null) } catch { setManagementError('회사 정보 저장에 실패했습니다.') }
+    }} onDelete={async () => { if (!selectedCompany) return; setManagementError(''); try { await deleteCompany.mutateAsync(selectedCompany.id); setConfirmDelete(false); setSelectedCompany(null) } catch { setManagementError('회사 삭제에 실패했습니다.') } }} />
   </Stack>
 }
 
@@ -236,10 +252,23 @@ function ReadinessTile({ label, value, tone = colors.secondary, muted = false, i
   return <Grid size={{ xs: 12, sm: 6, lg: 3 }}><Card sx={{ ...cardSx, opacity: muted ? 0.72 : 1 }}><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}><Stack direction="row" justifyContent="space-between" alignItems="center"><Box><Typography variant="caption" sx={{ fontWeight: 700, color: tone }}>{label}</Typography><Typography sx={{ fontSize: 32, lineHeight: 1.2, mt: 0.75 }}>{value}</Typography></Box><Box sx={{ width: 48, height: 48, borderRadius: '50%', display: 'grid', placeItems: 'center', bgcolor: tone === colors.secondary ? '#ECEEF0' : `${tone}14`, color: tone }}>{icon}</Box></Stack></CardContent></Card></Grid>
 }
 
-function CompanyTable({ companies }: { companies: Company[] }) {
+function CompanyTable({ companies, onManage }: { companies: Company[]; onManage: (company: Company) => void }) {
+  useEffect(() => {
+    const buttons = Array.from(document.querySelectorAll('svg[data-testid="SettingsOutlinedIcon"]'))
+    const cleanups = buttons.slice(-companies.length).map((button, index) => {
+      const handler = (event: Event) => { event.stopPropagation(); if (companies[index]) onManage(companies[index]) }
+      button.addEventListener('click', handler)
+      return () => button.removeEventListener('click', handler)
+    })
+    return () => cleanups.forEach((cleanup) => cleanup())
+  }, [companies, onManage])
   return <TableContainer><Table size="small" sx={{ minWidth: 980 }}><TableHead><TableRow>{['회사 코드', '회사명', '업종', '통화', '회계연도', '운영 상태', '누락 설정', '최종 수정', '조치'].map((label) => <TableCell key={label} align={label === '조치' ? 'right' : 'left'}>{label}</TableCell>)}</TableRow></TableHead><TableBody>
     {companies.length ? companies.map((item, index) => <TableRow key={item.id} hover><TableCell sx={{ color: colors.primary, fontWeight: 600 }}>{item.company_code}</TableCell><TableCell>{item.company_name}</TableCell><TableCell>{item.industry}</TableCell><TableCell>{item.functional_currency}</TableCell><TableCell>{`${item.fiscal_year_start_month || 1}월 시작`}</TableCell><TableCell><StatusChip label={index === 0 ? '분석 가능' : '설정 미완료'} tone={index === 0 ? 'success' : 'warning'} /></TableCell><TableCell sx={{ color: colors.secondary }}>{index === 0 ? '-' : '중요성 기준'}</TableCell><TableCell sx={{ color: colors.secondary }}>-</TableCell><TableCell align="right"><SettingsOutlined sx={{ color: colors.secondary }} /></TableCell></TableRow>) : <TableRow><TableCell colSpan={9} align="center" sx={{ py: 5, color: colors.secondary }}>등록된 회사가 없습니다.</TableCell></TableRow>}
   </TableBody></Table></TableContainer>
+}
+
+function CompanyManagementDialog({ company, error, saving, deleting, deleteOpen, onClose, onRequestDelete, onCancelDelete, onSave, onDelete }: { company: Company | null; error: string; saving: boolean; deleting: boolean; deleteOpen: boolean; onClose: () => void; onRequestDelete: () => void; onCancelDelete: () => void; onSave: (form: HTMLFormElement) => void; onDelete: () => void }) {
+  return <><Dialog open={Boolean(company)} onClose={onClose} fullWidth maxWidth="sm"><Box component="form" onSubmit={(event) => { event.preventDefault(); onSave(event.currentTarget) }}><DialogTitle>회사 정보 관리</DialogTitle><DialogContent><Stack spacing={2} sx={{ pt: 1 }}><TextField name="company_code" label="회사 코드" defaultValue={company?.company_code} required fullWidth /><TextField name="company_name" label="회사명" defaultValue={company?.company_name} required fullWidth /><TextField name="industry" label="업종" defaultValue={company?.industry} required fullWidth /><TextField name="functional_currency" label="기능통화" defaultValue={company?.functional_currency} required fullWidth /><TextField name="timezone" label="표준시간대" defaultValue={company?.timezone ?? 'Asia/Seoul'} required fullWidth /><TextField name="fiscal_year_start_month" label="회계연도 시작월" type="number" defaultValue={company?.fiscal_year_start_month} required fullWidth /><TextField name="month_close_day" label="월 마감일" type="number" defaultValue={company?.month_close_day ?? 5} required fullWidth />{error && <Alert severity="error">{error}</Alert>}</Stack></DialogContent><DialogActions><Button onClick={onClose}>취소</Button><Button type="submit" variant="contained" disabled={saving}>저장</Button></DialogActions><Box sx={{ p: 2, borderTop: `1px solid ${colors.border}` }}><Button color="error" onClick={onRequestDelete}>회사 삭제</Button></Box></Box></Dialog><Dialog open={deleteOpen} onClose={onCancelDelete}><DialogTitle>회사를 완전히 삭제할까요?</DialogTitle><DialogContent>회사 정보와 관련 저장 이력은 복구할 수 없습니다.</DialogContent><DialogActions><Button onClick={onCancelDelete}>취소</Button><Button color="error" variant="contained" onClick={onDelete} disabled={deleting}>완전히 삭제</Button></DialogActions></Dialog></>
 }
 
 function MaterialitySettings({ company }: { company?: Company }) {

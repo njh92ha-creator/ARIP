@@ -11,7 +11,10 @@ export interface Company {
   company_name: string
   industry: string
   functional_currency: string
+  timezone?: string
   fiscal_year_start_month: number
+  close_frequency?: string
+  month_close_day?: number
 }
 
 export interface Risk {

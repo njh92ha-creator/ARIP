@@ -18,6 +18,7 @@ from fastapi.encoders import jsonable_encoder
 from app.api.schemas import (
     AiConnectionInput,
     CompanyCreate,
+    CompanyUpdate,
     KnowledgeSourceInput,
     MappingApprove,
     MaterialityCreate,
@@ -194,6 +195,36 @@ def create_company(
 @router.get("/companies")
 def list_companies() -> Any:
     return encode(list(repository.companies.values()))
+
+
+@router.patch("/companies/{company_id}")
+def update_company(
+    company_id: UUID,
+    payload: CompanyUpdate,
+    user: CurrentUser = Depends(require_roles(Role.ADMIN)),
+) -> Any:
+    _entity(repository.companies, company_id, "company")
+    company = repository.save(CompanySettings(id=company_id, **payload.model_dump()))
+    repository.append_audit(AuditLogEntry(
+        action="COMPANY_UPDATED", resource_type="Company", resource_id=str(company.id),
+        actor=user.user_id, company_id=company.id,
+    ))
+    return encode(company)
+
+
+@router.delete("/companies/{company_id}", status_code=204)
+def delete_company(
+    company_id: UUID,
+    user: CurrentUser = Depends(require_roles(Role.ADMIN)),
+) -> None:
+    try:
+        company = repository.remove_company(company_id)
+    except KeyError as exc:
+        raise HTTPException(404, "company not found") from exc
+    repository.append_audit(AuditLogEntry(
+        action="COMPANY_DELETED", resource_type="Company", resource_id=str(company.id),
+        actor=user.user_id, company_id=company.id,
+    ))
 
 
 @router.post("/settings/materiality", status_code=201)

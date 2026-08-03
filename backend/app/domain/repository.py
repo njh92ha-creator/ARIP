@@ -196,6 +196,51 @@ class InMemoryRepository:
                 self._db_ready = False
                 self.last_db_error = type(exc).__name__
 
+    def remove_company(self, company_id: UUID) -> CompanySettings:
+        with self._lock:
+            company = self.companies.pop(company_id, None)
+            if company is None:
+                raise KeyError(company_id)
+            stores = (
+                ("MaterialityProfile", self.materiality_profiles),
+                ("VarianceProfile", self.variance_profiles),
+                ("MappingProfile", self.mapping_profiles),
+                ("JournalLine", self.journal_lines),
+                ("ClosingAnalysisSet", self.closing_analysis_sets),
+                ("SettlementBalance", self.settlement_balances),
+                ("CrossAnalysisFinding", self.cross_analysis_findings),
+                ("AccountingEvent", self.events),
+                ("Risk", self.risks),
+                ("VarianceObservation", self.variance_observations),
+            )
+            removed = [("CompanySettings", str(company.id))]
+            for collection, store in stores:
+                for object_id, item in list(store.items()):
+                    if getattr(item, "company_id", None) == company_id:
+                        store.pop(object_id)
+                        removed.append((collection, str(object_id)))
+            self.risk_memory = defaultdict(
+                list,
+                {risk_id: entries for risk_id, entries in self.risk_memory.items()
+                 if risk_id in self.risks},
+            )
+            self.event_hash_index = {
+                key: event_id for key, event_id in self.event_hash_index.items()
+                if key[0] != company_id
+            }
+            if self._db_ready:
+                try:
+                    with engine.begin() as connection:
+                        for collection, object_id in removed:
+                            connection.execute(
+                                text("delete from arip_state where collection = :collection and object_id = :object_id"),
+                                {"collection": collection, "object_id": object_id},
+                            )
+                except Exception as exc:
+                    self._db_ready = False
+                    self.last_db_error = type(exc).__name__
+            return company
+
     def append_memory(self, entry: RiskMemoryEntry) -> None:
         with self._lock:
             self.risk_memory[entry.risk_id].append(entry)

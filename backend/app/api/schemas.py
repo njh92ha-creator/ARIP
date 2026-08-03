@@ -19,6 +19,10 @@ class CompanyCreate(BaseModel):
     month_close_day: int = Field(5, ge=1, le=31)
 
 
+class CompanyUpdate(CompanyCreate):
+    pass
+
+
 class MaterialityCreate(BaseModel):
     company_id: UUID
     name: str
