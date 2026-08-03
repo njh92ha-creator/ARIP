@@ -22,15 +22,15 @@ import {
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { PMonogram } from '../components/PMonogram'
 
-const drawerWidth = 232
+const drawerWidth = 216
 const nav = [
-  ['Dashboard', '/', <Dashboard />],
-  ['Audit Risk', '/risks', <Gavel />],
-  ['Accounting Events', '/events', <EventNote />],
-  ['Journal', '/journals', <Description />],
-  ['Account Variance', '/account-variance', <Analytics />],
-  ['Excel Upload', '/uploads', <UploadFile />],
-  ['Settings', '/settings', <Settings />],
+  ['대시보드', '/', <Dashboard />],
+  ['리스크 관리', '/risks', <Gavel />],
+  ['회계사건(Event)', '/events', <EventNote />],
+  ['전표 조회', '/journals', <Description />],
+  ['계정 증감(AVI)', '/account-variance', <Analytics />],
+  ['Excel 업로드', '/uploads', <UploadFile />],
+  ['설정', '/settings', <Settings />],
 ] as const
 
 export function AppShell() {
@@ -41,7 +41,7 @@ export function AppShell() {
         variant="permanent"
         sx={{
           width: drawerWidth,
-          '& .MuiDrawer-paper': { width: drawerWidth, p: 2, borderRightColor: '#E5E7EB' },
+          '& .MuiDrawer-paper': { width: drawerWidth, p: 2, borderRightColor: '#E5E7EB', background: '#FFFFFF' },
         }}
       >
         <PMonogram />
@@ -52,7 +52,7 @@ export function AppShell() {
               component={NavLink}
               to={path}
               selected={location.pathname === path || (path !== '/' && location.pathname.startsWith(path))}
-              sx={{ borderRadius: 2, mb: 0.5 }}
+              sx={{ borderRadius: 2, mb: 0.5, py: 1.15, '&.Mui-selected': { bgcolor: '#EFF6FF', color: 'primary.main', '& .MuiListItemIcon-root': { color: 'primary.main' } } }}
             >
               <ListItemIcon sx={{ minWidth: 38 }}>{icon}</ListItemIcon>
               <ListItemText primary={label} />
@@ -60,7 +60,7 @@ export function AppShell() {
           ))}
         </List>
       </Drawer>
-      <Box component="main" sx={{ flexGrow: 1, ml: `${drawerWidth}px` }}>
+      <Box component="main" sx={{ flexGrow: 1, ml: `${drawerWidth}px`, bgcolor: 'background.default' }}>
         <AppBar
           position="sticky"
           elevation={0}

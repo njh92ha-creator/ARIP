@@ -11,6 +11,7 @@ uploads/
 *.db
 runtime-data/
 .worktrees/
+frontend/.npm-cache/
 *.xlsx
 *.xls
 *.pdf

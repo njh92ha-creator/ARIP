@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Alert, Box, Button, Card, CardContent, Divider, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Card, CardContent, Chip, Divider, Grid, Stack, TextField, Typography } from '@mui/material'
+import { CheckCircleOutline, CloudUploadOutlined, DescriptionOutlined, InsertDriveFileOutlined, PlayArrowOutlined, TuneOutlined } from '@mui/icons-material'
 import { useQuery } from '@tanstack/react-query'
 import { api, ClosingAnalysisSet, Company } from '../api'
 
@@ -8,7 +9,10 @@ type Proposal = { sheet_name: string; header_row: number; mapping: Record<string
 type SourceState = { file?: File; proposal?: Proposal; mapping: string; profileId?: string; attached: boolean }
 
 const emptySource = (): SourceState => ({ mapping: '', attached: false })
-const sourceLabel = (type: SourceType) => type === 'GENERAL_LEDGER' ? 'General Ledger' : 'Settlement Schedule'
+const sourceLabel = (type: SourceType) => type === 'GENERAL_LEDGER' ? '총계정원장' : '결산 명세서'
+const sourceDescription = (type: SourceType) => type === 'GENERAL_LEDGER'
+  ? '거래, 계정과목, 적요 정보를 바탕으로 회계 사건과 감사 리스크를 분석합니다.'
+  : '기말 잔액과 증감 신호를 바탕으로 원장 데이터와 교차 분석합니다.'
 
 export function UploadPage() {
   const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: async () => (await api.get<Company[]>('/companies')).data })
@@ -22,9 +26,8 @@ export function UploadPage() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  if (!company) return <Alert severity="info">Create company settings before starting an analysis.</Alert>
+  if (!company) return <Alert severity="info">분석을 시작하기 전에 설정에서 회사를 등록해주세요.</Alert>
   const activeCompany = company
-
   const getSource = (type: SourceType) => type === 'GENERAL_LEDGER' ? ledger : settlement
   const setSource = (type: SourceType, value: SourceState) => type === 'GENERAL_LEDGER' ? setLedger(value) : setSettlement(value)
   const resetScope = () => { setClosingSet(undefined); setLedger(emptySource()); setSettlement(emptySource()); setResult(undefined) }
@@ -52,7 +55,7 @@ export function UploadPage() {
       const response = await api.post<Proposal>('/mapping/propose', form)
       setSource(type, { ...source, proposal: response.data, mapping: JSON.stringify(response.data.mapping, null, 2) })
     } catch (cause: any) {
-      setError(cause?.response?.data?.detail ?? `${sourceLabel(type)} mapping proposal failed.`)
+      setError(cause?.response?.data?.detail ?? `${sourceLabel(type)}의 매핑 제안 생성에 실패했습니다.`)
     } finally { setBusy(false) }
   }
 
@@ -78,7 +81,7 @@ export function UploadPage() {
       setSource(type, { ...source, profileId: profile.data.id, attached: true })
       setResult(response.data)
     } catch (cause: any) {
-      setError(cause?.response?.data?.detail ?? `${sourceLabel(type)} could not be attached to the closing set.`)
+      setError(cause?.response?.data?.detail ?? `${sourceLabel(type)}을(를) 결산 분석 세트에 연결하지 못했습니다.`)
     } finally { setBusy(false) }
   }
 
@@ -91,49 +94,48 @@ export function UploadPage() {
       const refreshed = await api.get(`/closing-analysis-sets/${closingSet.id}`)
       setClosingSet(refreshed.data.closingAnalysisSet)
     } catch (cause: any) {
-      setError(cause?.response?.data?.detail ?? 'Closing analysis failed.')
+      setError(cause?.response?.data?.detail ?? '결산 분석에 실패했습니다.')
     } finally { setBusy(false) }
   }
 
   function sourceCard(type: SourceType) {
     const source = getSource(type)
     const missing = source.proposal?.missing_required ?? []
-    return <Card variant="outlined"><CardContent>
-      <Typography variant="h6">{sourceLabel(type)}</Typography>
-      <Typography color="text.secondary" variant="body2" sx={{ mb: 2 }}>
-        {type === 'GENERAL_LEDGER' ? 'Transaction, account and description evidence for Events and Audit Risk.' : 'Closing balances and variance signals for cross-analysis.'}
-      </Typography>
-      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-        <Button component="label" variant="outlined" disabled={busy}>Select file<input hidden type="file" accept=".xlsx,.xls" onChange={(event) => setSource(type, { ...emptySource(), file: event.target.files?.[0] })} /></Button>
-        <Button variant="contained" disabled={!source.file || busy} onClick={() => propose(type)}>Propose mapping</Button>
-        {source.file && <Typography variant="body2">{source.file.name}</Typography>}
+    return <Card variant="outlined" sx={{ height: '100%' }}><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
+      <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={2}>
+        <Stack direction="row" spacing={1.5} alignItems="center"><Box sx={{ width: 40, height: 40, borderRadius: 2, display: 'grid', placeItems: 'center', bgcolor: '#EFF6FF', color: '#1F6FD5' }}><DescriptionOutlined /></Box><Box><Typography variant="h6">{sourceLabel(type)}</Typography><Typography variant="caption" color="text.secondary">필수 분석 자료</Typography></Box></Stack>
+        {source.attached && <Chip icon={<CheckCircleOutline />} label="연결 완료" size="small" color="success" variant="outlined" />}
       </Stack>
+      <Typography color="text.secondary" variant="body2" sx={{ mt: 2, minHeight: 40 }}>{sourceDescription(type)}</Typography>
+      <Box sx={{ mt: 2.5, p: 2, border: '1px dashed #C2C6D5', borderRadius: 2, bgcolor: '#F8FAFC' }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} alignItems={{ sm: 'center' }}>
+          <Button component="label" variant="outlined" startIcon={<CloudUploadOutlined />} disabled={busy}>파일 선택<input hidden type="file" accept=".xlsx,.xls" onChange={(event) => setSource(type, { ...emptySource(), file: event.target.files?.[0] })} /></Button>
+          {source.file ? <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0 }}><InsertDriveFileOutlined fontSize="small" color="action" /><Typography variant="body2" noWrap title={source.file.name}>{source.file.name}</Typography></Stack> : <Typography variant="caption" color="text.secondary">.xlsx 또는 .xls 파일을 선택하세요.</Typography>}
+        </Stack>
+      </Box>
+      <Button fullWidth variant="contained" disabled={!source.file || busy} onClick={() => propose(type)} startIcon={<TuneOutlined />} sx={{ mt: 1.5 }}>매핑 제안 생성</Button>
       {source.proposal && <Box sx={{ mt: 2 }}>
-        <Alert severity={missing.length ? 'warning' : 'success'}>Sheet: {source.proposal.sheet_name}; Header: {source.proposal.header_row}; Missing: {missing.join(', ') || 'none'}</Alert>
-        <TextField label="Mapping JSON" multiline minRows={7} fullWidth sx={{ mt: 2 }} value={source.mapping} onChange={(event) => setSource(type, { ...source, mapping: event.target.value })} />
-        <Button variant="contained" sx={{ mt: 2 }} disabled={missing.length > 0 || busy} onClick={() => approveAndAttach(type)}>Approve mapping and attach</Button>
+        <Alert severity={missing.length ? 'warning' : 'success'} sx={{ '& .MuiAlert-message': { minWidth: 0 } }}><Typography variant="body2" sx={{ fontWeight: 600 }}>시트: {source.proposal.sheet_name} · 헤더 행: {source.proposal.header_row}</Typography><Typography variant="caption">누락 필수 항목: {missing.join(', ') || '없음'}</Typography></Alert>
+        <TextField label="매핑 JSON" multiline minRows={7} fullWidth sx={{ mt: 2 }} value={source.mapping} onChange={(event) => setSource(type, { ...source, mapping: event.target.value })} />
+        <Button fullWidth variant="contained" sx={{ mt: 1.5 }} disabled={missing.length > 0 || busy} onClick={() => approveAndAttach(type)}>매핑 승인 및 자료 연결</Button>
       </Box>}
-      {source.attached && <Alert severity="success" sx={{ mt: 2 }}>Attached to this Closing Analysis Set.</Alert>}
     </CardContent></Card>
   }
 
   const ready = Boolean(closingSet && ledger.attached && settlement.attached)
-  return <Box>
-    <Typography variant="h4">Closing Analysis Set</Typography>
-    <Typography color="text.secondary" sx={{ mt: 1, mb: 3 }}>Analyze the General Ledger and Settlement Schedule together for the same company, fiscal year and month.</Typography>
-    <Card sx={{ mb: 2 }}><CardContent>
-      <Typography variant="h6" sx={{ mb: 2 }}>Scope</Typography>
-      <Stack direction="row" spacing={2}>
-        <TextField label="Fiscal year" type="number" value={year} onChange={(event) => { setYear(Number(event.target.value)); resetScope() }} />
-        <TextField label="Fiscal month" type="number" inputProps={{ min: 1, max: 12 }} value={period} onChange={(event) => { setPeriod(Number(event.target.value)); resetScope() }} />
-      </Stack>
-      {closingSet && <Alert sx={{ mt: 2 }} severity={closingSet.status === 'COMPLETED' ? 'success' : 'info'}>Set {closingSet.fiscal_year}-{String(closingSet.fiscal_period).padStart(2, '0')} | {closingSet.status} | Reconciliation: {closingSet.reconciliation_status}</Alert>}
+  return <Box sx={{ pb: 3 }}>
+    <Box sx={{ mb: 3 }}><Typography variant="h4">결산 자료 업로드</Typography><Typography color="text.secondary" sx={{ mt: 0.75 }}>동일한 회사와 결산 기간의 총계정원장 및 결산 명세서를 연결해 통합 분석을 준비합니다.</Typography></Box>
+    <Card sx={{ mb: 2.5 }}><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2.5} alignItems={{ md: 'center' }} justifyContent="space-between"><Box><Typography variant="h6">분석 범위</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{company.company_name} · 결산 기준 기간을 선택하세요.</Typography></Box><Stack direction="row" spacing={1.5}><TextField label="회계연도" type="number" value={year} onChange={(event) => { setYear(Number(event.target.value)); resetScope() }} /><TextField label="결산월" type="number" inputProps={{ min: 1, max: 12 }} value={period} onChange={(event) => { setPeriod(Number(event.target.value)); resetScope() }} /></Stack></Stack>
+      {closingSet && <Alert sx={{ mt: 2.5 }} severity={closingSet.status === 'COMPLETED' ? 'success' : 'info'}>분석 세트 {closingSet.fiscal_year}-{String(closingSet.fiscal_period).padStart(2, '0')} · {closingSet.status} · 대사 상태: {closingSet.reconciliation_status}</Alert>}
     </CardContent></Card>
-    <Stack spacing={2}>{sourceCard('GENERAL_LEDGER')}{sourceCard('SETTLEMENT_SCHEDULE')}</Stack>
+    <Typography variant="h6" sx={{ mb: 1.5 }}>분석 자료 연결</Typography>
+    <Grid container spacing={2.5}><Grid size={{ xs: 12, lg: 6 }}>{sourceCard('GENERAL_LEDGER')}</Grid><Grid size={{ xs: 12, lg: 6 }}>{sourceCard('SETTLEMENT_SCHEDULE')}</Grid></Grid>
     <Divider sx={{ my: 3 }} />
-    <Button size="large" variant="contained" disabled={!ready || busy} onClick={analyze}>Run closing analysis</Button>
-    {!ready && <Typography color="text.secondary" sx={{ ml: 2, display: 'inline' }}>Attach and approve both source files to run the integrated analysis.</Typography>}
+    <Card sx={{ borderColor: ready ? 'rgba(31, 111, 213, 0.3)' : '#E5E7EB', bgcolor: ready ? 'rgba(31, 111, 213, 0.035)' : '#FFFFFF' }}><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} spacing={2}><Box><Typography variant="h6">통합 결산 분석</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{ready ? '두 자료가 연결되었습니다. 통합 분석을 실행할 수 있습니다.' : '두 자료의 매핑을 승인하고 결산 분석 세트에 연결하면 실행할 수 있습니다.'}</Typography></Box><Button size="large" variant="contained" disabled={!ready || busy} onClick={analyze} startIcon={<PlayArrowOutlined />} sx={{ minWidth: 178 }}>결산 분석 실행</Button></Stack>
+    </CardContent></Card>
     {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
-    {Boolean(result) && <Box sx={{ mt: 3 }}><Typography variant="h6">Result</Typography><pre>{String(JSON.stringify(result, null, 2))}</pre></Box>}
+    {Boolean(result) && <Card sx={{ mt: 2.5 }}><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}><Typography variant="h6">처리 결과</Typography><Box component="pre" sx={{ m: 0, mt: 1.5, p: 2, overflow: 'auto', borderRadius: 2, bgcolor: '#F8FAFC', border: '1px solid #E5E7EB', fontFamily: 'monospace', fontSize: 12 }}>{JSON.stringify(result, null, 2)}</Box></CardContent></Card>}
   </Box>
 }
