@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import json
 import hashlib
+import httpx
 import shutil
 import tempfile
 from dataclasses import asdict
@@ -17,6 +18,7 @@ from fastapi.encoders import jsonable_encoder
 
 from app.api.schemas import (
     AiConnectionInput,
+    AiConnectionTestInput,
     CompanyCreate,
     CompanyUpdate,
     KnowledgeSourceInput,
@@ -268,6 +270,31 @@ def set_ai_connection(
     }
     _save_runtime_settings()
     return runtime_settings["aiConnection"]
+
+
+@router.post("/settings/ai-connection/test")
+def test_ai_connection(
+    payload: AiConnectionTestInput,
+    user: CurrentUser = Depends(require_roles(Role.ADMIN)),
+) -> Any:
+    api_key = payload.api_key
+    if not api_key and payload.secret_reference and payload.secret_reference.startswith("env:"):
+        api_key = os.getenv(payload.secret_reference.removeprefix("env:"))
+    if not api_key:
+        return {"ok": False, "message": "연결할 API 키를 찾지 못했습니다."}
+    try:
+        response = httpx.get(
+            "https://api.openai.com/v1/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10.0,
+        )
+    except httpx.HTTPError:
+        return {"ok": False, "message": "OpenAI 연결에 실패했습니다. 네트워크 상태를 확인해 주세요."}
+    if response.status_code == 200:
+        return {"ok": True, "message": "OpenAI 연결이 확인되었습니다."}
+    if response.status_code in {401, 403}:
+        return {"ok": False, "message": "API 키를 확인해 주세요."}
+    return {"ok": False, "message": "OpenAI 연결을 확인하지 못했습니다."}
 
 
 @router.patch("/settings/knowledge-sources/local-standards")

@@ -19,3 +19,14 @@ test('감사 중요성은 현재 기준을 조회하고 검토 후 저장만 제
   assert.match(materialityComponent, /api\.put\(\s*`\/settings\/materiality\/\$\{company\.id\}`/)
   assert.doesNotMatch(materialityComponent, /임시 저장/)
 })
+
+test('AI 연결 설정은 저장과 연결 테스트 요청을 연결한다', async () => {
+  const source = await readFile(new URL('./SettingsPage.tsx', import.meta.url), 'utf8')
+  const start = source.indexOf('function AiSettings')
+  const end = source.indexOf('function KnowledgeSettings', start)
+  const aiComponent = source.slice(start, end)
+
+  assert.match(aiComponent, /api\.patch\("\/settings\/ai-connection"/)
+  assert.match(aiComponent, /api\.post\("\/settings\/ai-connection\/test"/)
+  assert.match(aiComponent, /onClick=\{\(\) => void testConnection\(\)\}/)
+})

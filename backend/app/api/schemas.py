@@ -65,6 +65,15 @@ class AiConnectionInput(BaseModel):
             raise ValueError("secret_reference must be env: or secret://")
 
 
+class AiConnectionTestInput(BaseModel):
+    api_key: str | None = None
+    secret_reference: str | None = None
+
+    def model_post_init(self, __context: Any) -> None:
+        if not self.api_key and not self.secret_reference:
+            raise ValueError("api_key or secret_reference is required")
+
+
 class KnowledgeSourceInput(BaseModel):
     company_id: UUID
     root_directory: str

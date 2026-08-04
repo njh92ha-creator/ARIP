@@ -1594,219 +1594,72 @@ function SimulationPreview() {
 }
 
 function AiSettings() {
-  const [saved, setSaved] = useState(false);
-  return (
-    <Card sx={cardSx}>
-      <Box sx={{ ...cardHeaderSx, bgcolor: "#FAFBFC" }}>
-        <SectionTitle
-          icon={<PsychologyOutlined sx={{ color: colors.secondary }} />}
-        >
-          AI 연결 설정{" "}
-          <Chip
-            icon={<LockOutlined />}
-            label="시스템 관리자 전용"
-            size="small"
-            sx={{ ml: 1, height: 22 }}
-          />
-        </SectionTitle>
-      </Box>
-      <CardContent sx={{ p: 3 }}>
-        <Alert
-          severity="info"
-          icon={<InfoOutlined />}
-          sx={{
-            mb: 3,
-            bgcolor: "#F1F6FC",
-            color: colors.text,
-            border: "1px solid #D9E7F5",
-          }}
-        >
-          OpenAI 연결이 없더라도 기존에 정의된 <b>규칙(Rule)</b> 및{" "}
-          <b>템플릿</b> 기반의 분석은 정상적으로 실행됩니다. AI 기능을
-          활성화하면 자연어 보고서 생성 및 의미론적 문서 검색이 가능해집니다.
-        </Alert>
-        <Grid container spacing={4}>
-          <Grid size={{ xs: 12, lg: 8 }}>
-            <Box
-              component="form"
-              onSubmit={async (event) => {
-                event.preventDefault();
-                const data = new FormData(event.currentTarget);
-                await api.patch("/settings/ai-connection", {
-                  provider: "openai",
-                  chat_model: data.get("model"),
-                  embedding_model: "text-embedding-3-large",
-                  secret_reference: data.get("secret_reference"),
-                  enabled: data.get("enabled") === "true",
-                });
-                setSaved(true);
-                event.currentTarget.reset();
-              }}
-            >
-              <Grid container spacing={2.5}>
-                <Grid size={{ xs: 12, md: 6 }}>
-                  <Field label="PROVIDER">
-                    <TextField
-                      value="OpenAI"
-                      fullWidth
-                      slotProps={{ input: { readOnly: true } }}
-                      sx={fieldSx}
-                    />
-                  </Field>
-                </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
-                  <Field label="CHAT MODEL">
-                    <TextField
-                      name="model"
-                      select
-                      defaultValue="gpt-4o-mini"
-                      fullWidth
-                      sx={fieldSx}
-                    >
-                      <MenuItem value="gpt-4o-mini">gpt-4o-mini</MenuItem>
-                      <MenuItem value="gpt-4o">gpt-4o</MenuItem>
-                    </TextField>
-                  </Field>
-                </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
-                  <Field label="EMBEDDING MODEL">
-                    <TextField
-                      value="text-embedding-3-large"
-                      fullWidth
-                      slotProps={{ input: { readOnly: true } }}
-                      sx={fieldSx}
-                    />
-                  </Field>
-                </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
-                  <Field label="OPENAI API KEY">
-                    <TextField
-                      name="secret_reference"
-                      type="password"
-                      autoComplete="new-password"
-                      placeholder="새 API 키 입력"
-                      fullWidth
-                      helperText="보안을 위해 입력 시에만 노출되며 저장 후에는 다시 표시하지 않습니다."
-                      sx={fieldSx}
-                    />
-                  </Field>
-                </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
-                  <Field label="AI 기능 상태">
-                    <TextField
-                      name="enabled"
-                      select
-                      defaultValue="false"
-                      fullWidth
-                      sx={fieldSx}
-                    >
-                      <MenuItem value="false">비활성</MenuItem>
-                      <MenuItem value="true">활성</MenuItem>
-                    </TextField>
-                  </Field>
-                </Grid>
-              </Grid>
-              <Stack
-                direction="row"
-                spacing={1.5}
-                sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${colors.border}` }}
-              >
-                <Button
-                  type="button"
-                  variant="outlined"
-                  startIcon={<CableOutlined />}
-                  sx={{ borderColor: colors.border, color: colors.primary }}
-                >
-                  연결 테스트
-                </Button>
-                <Button
-                  type="submit"
-                  variant="contained"
-                  startIcon={<SaveOutlined />}
-                  sx={{ bgcolor: colors.primary }}
-                >
-                  저장
-                </Button>
-              </Stack>
-              {saved && (
-                <Alert severity="success" sx={{ mt: 2 }}>
-                  비밀값을 노출하지 않고 연결 설정을 저장했습니다.
-                </Alert>
-              )}
-            </Box>
+  const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState("gpt-4o-mini");
+  const [enabled, setEnabled] = useState("false");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [testing, setTesting] = useState(false);
+  const runtime = useQuery({ queryKey: ["runtime-settings"], queryFn: async () => (await api.get("/settings/runtime")).data });
+  const connection = runtime.data?.aiConnection;
+
+  const save = async () => {
+    setMessage("");
+    setError("");
+    try {
+      const result = await api.patch("/settings/ai-connection", {
+        provider: "openai",
+        chat_model: model,
+        embedding_model: "text-embedding-3-large",
+        secret_reference: "env:OPENAI_API_KEY",
+        enabled: enabled === "true",
+      });
+      await runtime.refetch();
+      setApiKey("");
+      setMessage(result.data.secretReadable ? "AI 연결 설정을 저장했습니다." : "설정은 저장되었습니다. Vercel 환경변수 OPENAI_API_KEY를 등록하면 AI 기능을 사용할 수 있습니다.");
+    } catch {
+      setError("AI 연결 설정 저장에 실패했습니다.");
+    }
+  };
+
+  const testConnection = async () => {
+    setMessage("");
+    setError("");
+    setTesting(true);
+    try {
+      const result = await api.post("/settings/ai-connection/test", apiKey ? { api_key: apiKey } : { secret_reference: "env:OPENAI_API_KEY" });
+      if (result.data.ok) {
+        setMessage(result.data.message);
+      } else {
+        setError(result.data.message);
+      }
+    } catch {
+      setError("연결 테스트에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return <Card sx={cardSx}>
+    <Box sx={{ ...cardHeaderSx, bgcolor: "#FAFBFC" }}><SectionTitle icon={<PsychologyOutlined sx={{ color: colors.secondary }} />}>AI 연결 설정 <Chip icon={<LockOutlined />} label="시스템 관리자 전용" size="small" sx={{ ml: 1, height: 22 }} /></SectionTitle></Box>
+    <CardContent sx={{ p: 3 }}>
+      <Alert severity="info" icon={<InfoOutlined />} sx={{ mb: 3, bgcolor: "#F1F6FC", color: colors.text, border: "1px solid #D9E7F5" }}>입력한 API 키는 연결 테스트에만 사용하고 서버에 저장하거나 다시 표시하지 않습니다. 운영 연결은 Vercel 환경변수 <b>OPENAI_API_KEY</b>를 사용합니다.</Alert>
+      <Grid container spacing={4}>
+        <Grid size={{ xs: 12, lg: 8 }}><Box component="form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+          <Grid container spacing={2.5}>
+            <Grid size={{ xs: 12, md: 6 }}><Field label="PROVIDER"><TextField value="OpenAI" fullWidth slotProps={{ input: { readOnly: true } }} sx={fieldSx} /></Field></Grid>
+            <Grid size={{ xs: 12, md: 6 }}><Field label="CHAT MODEL"><TextField select value={model} onChange={(event) => setModel(event.target.value)} fullWidth sx={fieldSx}><MenuItem value="gpt-4o-mini">gpt-4o-mini</MenuItem><MenuItem value="gpt-4o">gpt-4o</MenuItem></TextField></Field></Grid>
+            <Grid size={{ xs: 12, md: 6 }}><Field label="EMBEDDING MODEL"><TextField value="text-embedding-3-large" fullWidth slotProps={{ input: { readOnly: true } }} sx={fieldSx} /></Field></Grid>
+            <Grid size={{ xs: 12, md: 6 }}><Field label="OPENAI API KEY"><TextField type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="new-password" placeholder="연결 테스트용 API 키 입력" fullWidth helperText="저장되지 않으며 연결 테스트에만 사용됩니다." sx={fieldSx} /></Field></Grid>
+            <Grid size={{ xs: 12, md: 6 }}><Field label="AI 기능 상태"><TextField select value={enabled} onChange={(event) => setEnabled(event.target.value)} fullWidth sx={fieldSx}><MenuItem value="false">비활성</MenuItem><MenuItem value="true">활성</MenuItem></TextField></Field></Grid>
           </Grid>
-          <Grid size={{ xs: 12, lg: 4 }}>
-            <Box
-              sx={{
-                p: 3,
-                bgcolor: colors.canvas,
-                border: `1px solid ${colors.border}`,
-                borderRadius: "12px",
-                height: "100%",
-              }}
-            >
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                fontWeight={700}
-              >
-                연결 상태
-              </Typography>
-              <Stack
-                direction="row"
-                spacing={1.5}
-                alignItems="center"
-                sx={{ mt: 2 }}
-              >
-                <Box
-                  sx={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: "50%",
-                    bgcolor: "#E7F7ED",
-                    color: colors.success,
-                    display: "grid",
-                    placeItems: "center",
-                  }}
-                >
-                  <CheckCircleOutline />
-                </Box>
-                <Box>
-                  <Stack direction="row" spacing={1}>
-                    <Typography variant="body2" fontWeight={700}>
-                      API 키 미설정
-                    </Typography>
-                    <Chip label="검증 전" size="small" />
-                  </Stack>
-                  <Typography variant="caption" color="text.secondary">
-                    저장 후에도 비밀값은 표시되지 않습니다.
-                  </Typography>
-                </Box>
-              </Stack>
-              <Stack spacing={1.5} sx={{ mt: 3 }}>
-                <PreviewFact label="분당 토큰 한도(TPM)" value="200,000" />
-                <PreviewFact label="분당 요청 한도(RPM)" value="500" />
-              </Stack>
-              <Stack
-                direction="row"
-                spacing={1}
-                sx={{ mt: 3, pt: 2, borderTop: `1px solid ${colors.border}` }}
-              >
-                <ShieldOutlined
-                  fontSize="small"
-                  sx={{ color: colors.secondary }}
-                />
-                <Typography variant="caption" color="text.secondary">
-                  모든 AI 통신은 암호화되며 API 사용 로그는 내부 보안 지침에
-                  따라 기록됩니다.
-                </Typography>
-              </Stack>
-            </Box>
-          </Grid>
-        </Grid>
-      </CardContent>
-    </Card>
-  );
+          <Stack direction="row" spacing={1.5} sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${colors.border}` }}><Button type="button" variant="outlined" onClick={() => void testConnection()} disabled={testing} startIcon={<CableOutlined />} sx={{ borderColor: colors.border, color: colors.primary }}>{testing ? "테스트 중" : "연결 테스트"}</Button><Button type="submit" variant="contained" startIcon={<SaveOutlined />} sx={{ bgcolor: colors.primary }}>저장</Button></Stack>
+          {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}{message && <Alert severity="success" sx={{ mt: 2 }}>{message}</Alert>}
+        </Box></Grid>
+        <Grid size={{ xs: 12, lg: 4 }}><Box sx={{ p: 3, bgcolor: colors.canvas, border: `1px solid ${colors.border}`, borderRadius: "12px", height: "100%" }}><Typography variant="caption" color="text.secondary" fontWeight={700}>연결 상태</Typography><Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 2 }}><Box sx={{ width: 48, height: 48, borderRadius: "50%", bgcolor: connection?.secretReadable ? "#E7F7ED" : "#ECEEF0", color: connection?.secretReadable ? colors.success : colors.secondary, display: "grid", placeItems: "center" }}><CheckCircleOutline /></Box><Box><Stack direction="row" spacing={1}><Typography variant="body2" fontWeight={700}>{connection?.secretReadable ? "API 키 연결됨" : "API 키 미설정"}</Typography><Chip label={connection?.configured ? "설정됨" : "검증 전"} size="small" /></Stack><Typography variant="caption" color="text.secondary">저장 후에도 비밀값은 표시하지 않습니다.</Typography></Box></Stack><Stack spacing={1.5} sx={{ mt: 3 }}><PreviewFact label="분당 토큰 한도(TPM)" value="200,000" /><PreviewFact label="분당 요청 한도(RPM)" value="500" /></Stack></Box></Grid>
+      </Grid>
+    </CardContent>
+  </Card>;
 }
 
 function KnowledgeSettings({ company }: { company?: Company }) {
