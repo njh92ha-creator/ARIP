@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Response, UploadFile
 from fastapi.encoders import jsonable_encoder
 
 from app.api.schemas import (
@@ -212,7 +212,7 @@ def update_company(
     return encode(company)
 
 
-@router.delete("/companies/{company_id}", status_code=204)
+@router.delete("/companies/{company_id}", status_code=204, response_class=Response)
 def delete_company(
     company_id: UUID,
     user: CurrentUser = Depends(require_roles(Role.ADMIN)),
