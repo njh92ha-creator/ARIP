@@ -169,6 +169,31 @@ class MaterialityRepositoryTest(unittest.TestCase):
         self.assertEqual(repository.get_materiality_profile(company.id), second)
 
 
+class VarianceProfileRepositoryTest(unittest.TestCase):
+    def test_upsert_variance_profile_keeps_current_period_and_exception(self) -> None:
+        repository = InMemoryRepository(persistent=False)
+        company = repository.save(CompanySettings("P002", "AVI company", "Manufacturing"))
+        profile = repository.upsert_variance_profile(
+            company.id,
+            name="Default AVI",
+            thresholds=[VarianceThreshold("MOM", Decimal("100"), Decimal("0.2"), Decimal("10"))],
+            effective_from=date(2026, 1, 1),
+            effective_to=date(2026, 12, 31),
+            exceptions=[{
+                "account_name": "Revenue",
+                "comparison": "YOY",
+                "amount_threshold": Decimal("200"),
+                "rate_threshold": Decimal("0.1"),
+                "reason": "Seasonal change",
+            }],
+        )
+
+        self.assertEqual(profile.effective_from, date(2026, 1, 1))
+        self.assertEqual(profile.effective_to, date(2026, 12, 31))
+        self.assertEqual(len(profile.exceptions), 1)
+        self.assertEqual(repository.get_variance_profile(company.id), profile)
+
+
 class VarianceTest(unittest.TestCase):
     def test_ytd_monthly_flow_and_threshold(self) -> None:
         company_id = uuid4()

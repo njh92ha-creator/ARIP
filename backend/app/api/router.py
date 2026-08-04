@@ -263,6 +263,30 @@ def create_variance_profile(
     return encode(profile)
 
 
+@router.get("/variance-settings/current")
+def get_current_variance_profile(company_id: UUID) -> Any:
+    profile = repository.get_variance_profile(company_id)
+    return encode(profile) if profile else None
+
+
+@router.put("/variance-settings/current/{company_id}")
+def upsert_current_variance_profile(
+    company_id: UUID,
+    payload: VarianceProfileCreate,
+    user: CurrentUser = Depends(require_roles(Role.CLOSING_MANAGER, Role.ADMIN)),
+) -> Any:
+    _entity(repository.companies, company_id, "company")
+    profile = repository.upsert_variance_profile(
+        company_id,
+        name=payload.name,
+        thresholds=[VarianceThreshold(**item.model_dump()) for item in payload.thresholds],
+        effective_from=payload.effective_from,
+        effective_to=payload.effective_to,
+        exceptions=[item.model_dump() for item in payload.exceptions],
+    )
+    return encode(profile)
+
+
 @router.get("/settings/runtime")
 def get_runtime_settings() -> Any:
     return runtime_settings

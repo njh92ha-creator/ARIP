@@ -115,10 +115,23 @@ class VarianceThreshold:
 
 
 @dataclass(slots=True)
+class VarianceException:
+    account_name: str
+    comparison: str
+    amount_threshold: Decimal
+    rate_threshold: Decimal
+    reason: str
+    account_group: str = ""
+
+
+@dataclass(slots=True)
 class VarianceProfile:
     company_id: UUID
     name: str
     thresholds: list[VarianceThreshold]
+    effective_from: date | None = None
+    effective_to: date | None = None
+    exceptions: list[VarianceException] = field(default_factory=list)
     status: str = "DRAFT"
     version: int = 1
     id: UUID = field(default_factory=uuid4)
