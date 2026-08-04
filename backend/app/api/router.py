@@ -212,11 +212,11 @@ def update_company(
     return encode(company)
 
 
-@router.delete("/companies/{company_id}", status_code=204, response_class=Response)
+@router.delete("/companies/{company_id}")
 def delete_company(
     company_id: UUID,
     user: CurrentUser = Depends(require_roles(Role.ADMIN)),
-) -> None:
+) -> dict[str, str]:
     try:
         company = repository.remove_company(company_id)
     except KeyError as exc:
@@ -225,6 +225,7 @@ def delete_company(
         action="COMPANY_DELETED", resource_type="Company", resource_id=str(company.id),
         actor=user.user_id, company_id=company.id,
     ))
+    return {"deleted": str(company.id)}
 
 
 @router.post("/settings/materiality", status_code=201)
