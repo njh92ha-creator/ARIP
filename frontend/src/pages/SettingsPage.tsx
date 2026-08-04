@@ -917,7 +917,7 @@ function CompanyManagementDialog({
   );
 }
 
-function MaterialitySettings({ company }: { company?: Company }) {
+function LegacyMaterialitySettings({ company }: { company?: Company }) {
   const [message, setMessage] = useState("");
   const [overall, setOverall] = useState("500000000");
   const [performance, setPerformance] = useState("300000000");
@@ -1189,6 +1189,126 @@ function MaterialitySettings({ company }: { company?: Company }) {
               </Button>
             </Stack>
           </Box>
+        </Card>
+      </Grid>
+    </Grid>
+  );
+}
+
+type CurrentMateriality = {
+  id: string;
+  company_id: string;
+  benchmark: string;
+  overall_materiality: string | number;
+  performance_materiality: string | number;
+  trivial_threshold: string | number;
+  effective_from: string;
+  status: string;
+};
+
+function MaterialitySettings({ company }: { company?: Company }) {
+  const [overall, setOverall] = useState("500000000");
+  const [performance, setPerformance] = useState("300000000");
+  const [trivial, setTrivial] = useState("10000000");
+  const [benchmark, setBenchmark] = useState("REVENUE");
+  const [effectiveFrom, setEffectiveFrom] = useState("2024-01-01");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const materiality = useQuery({
+    queryKey: ["materiality", company?.id],
+    enabled: Boolean(company),
+    queryFn: async () =>
+      (
+        await api.get<CurrentMateriality | null>("/settings/materiality", {
+          params: { company_id: company!.id },
+        })
+      ).data,
+  });
+
+  useEffect(() => {
+    if (!materiality.data) return;
+    setBenchmark(materiality.data.benchmark);
+    setOverall(String(materiality.data.overall_materiality));
+    setPerformance(String(materiality.data.performance_materiality));
+    setTrivial(String(materiality.data.trivial_threshold));
+    setEffectiveFrom(materiality.data.effective_from);
+  }, [materiality.data]);
+
+  if (!company) {
+    return <Alert severity="info">먼저 회사 및 회계연도 탭에서 회사를 등록해 주세요.</Alert>;
+  }
+
+  const money = (value: string | number) => `${Number(value).toLocaleString("ko-KR")}원`;
+  const saved = materiality.data;
+  const benchmarkLabel = (value: string) =>
+    value === "REVENUE" ? "매출액" : value === "TOTAL_ASSETS" ? "총자산" : "자기자본";
+
+  return (
+    <Grid container spacing={3} alignItems="flex-start">
+      <Grid size={{ xs: 12, lg: 8.5 }}>
+        <Card sx={cardSx}>
+          <Box sx={cardHeaderSx}>
+            <Typography variant="h6" sx={{ fontWeight: 700 }}>감사 중요성 기준 설정</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              회사별 현재 적용 중요성 기준을 관리합니다.
+            </Typography>
+          </Box>
+          <CardContent sx={{ p: 3 }}>
+            <Box
+              id="materiality-form"
+              component="form"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                setMessage("");
+                setError("");
+                try {
+                  await api.put(`/settings/materiality/${company.id}`, {
+                    company_id: company.id,
+                    name: "기본 중요성",
+                    benchmark,
+                    overall_materiality: overall,
+                    performance_materiality: performance,
+                    trivial_threshold: trivial,
+                    effective_from: effectiveFrom,
+                    approve: true,
+                  });
+                  await materiality.refetch();
+                  setMessage("현재 적용 중요성 기준을 저장했습니다.");
+                } catch {
+                  setError("중요성 기준 저장에 실패했습니다. 입력값과 연결 상태를 확인해 주세요.");
+                }
+              }}
+            >
+              <Grid container spacing={3}>
+                <Grid size={{ xs: 12, md: 6 }}><Field label="회사명"><TextField value={company.company_name} fullWidth slotProps={{ input: { readOnly: true } }} sx={fieldSx} /></Field></Grid>
+                <Grid size={{ xs: 12, md: 6 }}><Field label="회계연도"><TextField value={`${company.fiscal_year_start_month}월 시작`} fullWidth slotProps={{ input: { readOnly: true } }} sx={fieldSx} /></Field></Grid>
+                <Grid size={{ xs: 12, md: 6 }}><Field label="벤치마크"><TextField select value={benchmark} onChange={(event) => setBenchmark(event.target.value)} fullWidth sx={fieldSx}><MenuItem value="REVENUE">매출액</MenuItem><MenuItem value="TOTAL_ASSETS">총자산</MenuItem><MenuItem value="EQUITY">자기자본</MenuItem></TextField></Field></Grid>
+                <Grid size={{ xs: 12, md: 6 }}><Field label="적용 시작일"><TextField type="date" value={effectiveFrom} onChange={(event) => setEffectiveFrom(event.target.value)} fullWidth sx={fieldSx} /></Field></Grid>
+                <Grid size={{ xs: 12, md: 4 }}><Field label="전체 중요성"><TextField type="number" value={overall} onChange={(event) => setOverall(event.target.value)} fullWidth sx={fieldSx} /></Field></Grid>
+                <Grid size={{ xs: 12, md: 4 }}><Field label="수행 중요성"><TextField type="number" value={performance} onChange={(event) => setPerformance(event.target.value)} fullWidth sx={fieldSx} /></Field></Grid>
+                <Grid size={{ xs: 12, md: 4 }}><Field label="사소한 금액"><TextField type="number" value={trivial} onChange={(event) => setTrivial(event.target.value)} fullWidth sx={fieldSx} /></Field></Grid>
+              </Grid>
+              {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+              {message && <Alert severity="success" sx={{ mt: 2 }}>{message}</Alert>}
+            </Box>
+          </CardContent>
+        </Card>
+      </Grid>
+      <Grid size={{ xs: 12, lg: 3.5 }}>
+        <Card sx={{ ...cardSx, position: { lg: "sticky" }, top: { lg: 88 } }}>
+          <Box sx={cardHeaderSx}><SectionTitle icon={<VisibilityOutlined sx={{ color: colors.primary }} />}>저장 결과</SectionTitle></Box>
+          <CardContent sx={{ p: 3 }}>
+            {materiality.isLoading ? <Typography color="text.secondary">저장된 기준을 불러오는 중입니다.</Typography> : saved ? <Stack spacing={1.5}>
+              <PreviewFact label="회사" value={`${company.company_name} (${company.company_code})`} />
+              <PreviewFact label="회계연도" value={`${company.fiscal_year_start_month}월 시작`} />
+              <PreviewFact label="전체 중요성" value={money(saved.overall_materiality)} />
+              <PreviewFact label="수행 중요성" value={money(saved.performance_materiality)} />
+              <PreviewFact label="사소한 금액" value={money(saved.trivial_threshold)} />
+              <PreviewFact label="벤치마크" value={benchmarkLabel(saved.benchmark)} />
+              <PreviewFact label="적용 시작일" value={saved.effective_from} />
+            </Stack> : <Typography color="text.secondary">저장된 현재 적용 중요성 기준이 없습니다.</Typography>}
+          </CardContent>
+          <Box sx={{ p: 3, borderTop: `1px solid ${colors.border}` }}><Button type="submit" form="materiality-form" variant="contained" fullWidth sx={{ bgcolor: colors.primary }}>검토 후 저장</Button></Box>
         </Card>
       </Grid>
     </Grid>
