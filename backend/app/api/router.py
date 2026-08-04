@@ -63,8 +63,12 @@ runtime_settings: dict[str, Any] = {
 
 
 def _load_runtime_settings() -> None:
-    """Load non-secret runtime settings from the persistent application volume."""
+    """Load non-secret runtime settings from PostgreSQL, with a local-file fallback."""
     global runtime_settings
+    stored = repository.get_runtime_setting("global")
+    if isinstance(stored, dict):
+        runtime_settings.update(stored)
+        return
     try:
         if _RUNTIME_SETTINGS_PATH.exists():
             stored = json.loads(_RUNTIME_SETTINGS_PATH.read_text(encoding="utf-8"))
@@ -76,15 +80,28 @@ def _load_runtime_settings() -> None:
 
 
 def _save_runtime_settings() -> None:
-    _RUNTIME_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    temporary = _RUNTIME_SETTINGS_PATH.with_suffix(".tmp")
-    temporary.write_text(json.dumps(runtime_settings, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(_RUNTIME_SETTINGS_PATH)
+    repository.save_runtime_setting("global", runtime_settings)
+    if repository._db_ready:
+        return
+    try:
+        _RUNTIME_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temporary = _RUNTIME_SETTINGS_PATH.with_suffix(".tmp")
+        temporary.write_text(json.dumps(runtime_settings, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(_RUNTIME_SETTINGS_PATH)
+    except OSError:
+        # Vercel's application directory is read-only; the in-memory setting still works.
+        pass
 
 
 _load_runtime_settings()
-knowledge_candidates: dict[str, dict[str, Any]] = {}
+knowledge_candidates: dict[str, dict[str, Any]] = repository.get_runtime_setting(
+    "knowledge-candidates", {}
+)
 jobs: dict[str, dict[str, Any]] = {}
+
+
+def _save_knowledge_candidates() -> None:
+    repository.save_runtime_setting("knowledge-candidates", knowledge_candidates)
 
 
 def encode(value: Any) -> Any:
@@ -339,7 +356,7 @@ def scan_knowledge_source(
         if not path.is_file() or path.suffix.lower() not in allowed:
             continue
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        candidate_id = f"{company_id}:{digest}"
+        candidate_id = str(uuid4())
         knowledge_candidates[candidate_id] = {
             "id": candidate_id,
             "companyId": str(company_id),
@@ -349,6 +366,7 @@ def scan_knowledge_source(
             "ragEligible": False,
         }
         scanned += 1
+    _save_knowledge_candidates()
     repository.append_audit(
         AuditLogEntry(
             action="KNOWLEDGE_SOURCE_SCANNED",
@@ -368,27 +386,27 @@ async def upload_knowledge_documents(
     files: list[UploadFile] = File(...),
     user: CurrentUser = Depends(require_roles(Role.ADMIN)),
 ) -> Any:
-    """Upload standards from the browser; avoids inaccessible host paths in Docker."""
-    root = Path("/app/data/standards") / str(company_id)
-    root.mkdir(parents=True, exist_ok=True)
+    """Upload standards from the browser into the configured PostgreSQL store."""
     allowed = {".pdf", ".hwp", ".hwpx", ".docx", ".txt", ".md", ".html"}
     scanned = 0
     for upload in files:
         name = Path(upload.filename or "document").name
         if Path(name).suffix.lower() not in allowed:
             continue
-        target = root / name
         content = await upload.read()
-        target.write_bytes(content)
         digest = hashlib.sha256(content).hexdigest()
-        candidate_id = f"{company_id}:{digest}"
+        candidate_id = str(uuid4())
         knowledge_candidates[candidate_id] = {
             "id": candidate_id, "companyId": str(company_id),
             "relativePath": name, "contentHash": digest,
             "status": "PENDING", "ragEligible": False,
         }
+        repository.save_runtime_setting(
+            f"knowledge-document:{candidate_id}",
+            {"filename": name, "content": content, "contentHash": digest},
+        )
         scanned += 1
-    _save_runtime_settings()
+    _save_knowledge_candidates()
     return {"uploaded": scanned, "status": "COMPLETED"}
 
 
@@ -410,6 +428,7 @@ def approve_knowledge_candidate(
     candidate["status"] = "APPROVED"
     candidate["ragEligible"] = True
     candidate["approvedBy"] = user.user_id
+    _save_knowledge_candidates()
     return candidate
 
 

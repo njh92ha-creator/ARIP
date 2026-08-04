@@ -48,6 +48,7 @@ class InMemoryRepository:
         self.risk_memory: dict[UUID, list[RiskMemoryEntry]] = defaultdict(list)
         self.variance_observations: dict[UUID, VarianceObservation] = {}
         self.audit_log: list[AuditLogEntry] = []
+        self.runtime_settings: dict[str, Any] = {}
         self.processed_source_hashes: set[str] = set()
         self.event_hash_index: dict[tuple[UUID, str], UUID] = {}
         self._db_ready = False
@@ -149,6 +150,49 @@ class InMemoryRepository:
         except Exception as exc:
             self._db_ready = False
             self.last_db_error = type(exc).__name__
+
+    def get_runtime_setting(self, key: str, default: Any = None) -> Any:
+        with self._lock:
+            if key in self.runtime_settings:
+                return self.runtime_settings[key]
+            if not self._db_ready:
+                return default
+            try:
+                with engine.connect() as connection:
+                    payload = connection.execute(
+                        text("select payload from arip_state where collection = :collection and object_id = :object_id"),
+                        {"collection": "RuntimeSetting", "object_id": key},
+                    ).scalar_one_or_none()
+                if payload is None:
+                    return default
+                value = pickle.loads(bytes(payload))
+                self.runtime_settings[key] = value
+                return value
+            except Exception as exc:
+                self._db_ready = False
+                self.last_db_error = type(exc).__name__
+                return default
+
+    def save_runtime_setting(self, key: str, value: Any) -> None:
+        with self._lock:
+            self.runtime_settings[key] = value
+            if not self._db_ready:
+                return
+            try:
+                with engine.begin() as connection:
+                    connection.execute(text("""
+                        insert into arip_state (collection, object_id, payload)
+                        values (:collection, :object_id, :payload)
+                        on conflict (collection, object_id) do update
+                        set payload = excluded.payload, updated_at = now()
+                    """), {
+                        "collection": "RuntimeSetting",
+                        "object_id": key,
+                        "payload": pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL),
+                    })
+            except Exception as exc:
+                self._db_ready = False
+                self.last_db_error = type(exc).__name__
 
     def save(self, obj: T) -> T:
         with self._lock:
