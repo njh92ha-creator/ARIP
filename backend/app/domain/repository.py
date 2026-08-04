@@ -171,6 +171,59 @@ class InMemoryRepository:
             self._persist(type(obj).__name__, obj)
             return obj
 
+    def get_materiality_profile(self, company_id: UUID) -> MaterialityProfile | None:
+        return next(
+            (item for item in self.materiality_profiles.values() if item.company_id == company_id),
+            None,
+        )
+
+    def upsert_materiality_profile(
+        self,
+        company_id: UUID,
+        *,
+        name: str,
+        benchmark: str,
+        overall_materiality: Any,
+        performance_materiality: Any,
+        trivial_threshold: Any,
+        effective_from: Any,
+        qualitative_factors: list[str] | None = None,
+    ) -> MaterialityProfile:
+        with self._lock:
+            profiles = [
+                item for item in self.materiality_profiles.values() if item.company_id == company_id
+            ]
+            profile = profiles[0] if profiles else MaterialityProfile(
+                company_id=company_id,
+                name=name,
+                benchmark=benchmark,
+                overall_materiality=overall_materiality,
+                performance_materiality=performance_materiality,
+                trivial_threshold=trivial_threshold,
+                effective_from=effective_from,
+            )
+            profile.name = name
+            profile.benchmark = benchmark
+            profile.overall_materiality = overall_materiality
+            profile.performance_materiality = performance_materiality
+            profile.trivial_threshold = trivial_threshold
+            profile.effective_from = effective_from
+            profile.qualitative_factors = qualitative_factors or []
+            profile.status = "APPROVED"
+            for duplicate in profiles[1:]:
+                self.materiality_profiles.pop(duplicate.id, None)
+                if self._db_ready:
+                    try:
+                        with engine.begin() as connection:
+                            connection.execute(
+                                text("delete from arip_state where collection = :collection and object_id = :object_id"),
+                                {"collection": "MaterialityProfile", "object_id": str(duplicate.id)},
+                            )
+                    except Exception as exc:
+                        self._db_ready = False
+                        self.last_db_error = type(exc).__name__
+            return self.save(profile)
+
     def remove(self, obj: Any) -> None:
         """Remove a replaceable current-state record while retaining append-only logs."""
         with self._lock:

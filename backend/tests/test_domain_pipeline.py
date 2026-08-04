@@ -140,6 +140,35 @@ class MappingAndPipelineTest(unittest.TestCase):
             path.unlink(missing_ok=True)
 
 
+class MaterialityRepositoryTest(unittest.TestCase):
+    def test_upsert_materiality_keeps_one_current_profile_per_company(self) -> None:
+        repository = InMemoryRepository(persistent=False)
+        company = repository.save(CompanySettings("P001", "Test company", "Manufacturing"))
+        first = repository.upsert_materiality_profile(
+            company.id,
+            name="Default materiality",
+            benchmark="REVENUE",
+            overall_materiality=Decimal("500000000"),
+            performance_materiality=Decimal("300000000"),
+            trivial_threshold=Decimal("10000000"),
+            effective_from=date(2026, 1, 1),
+        )
+        second = repository.upsert_materiality_profile(
+            company.id,
+            name="Default materiality",
+            benchmark="TOTAL_ASSETS",
+            overall_materiality=Decimal("600000000"),
+            performance_materiality=Decimal("400000000"),
+            trivial_threshold=Decimal("20000000"),
+            effective_from=date(2026, 2, 1),
+        )
+
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(len(repository.materiality_profiles), 1)
+        self.assertEqual(second.overall_materiality, Decimal("600000000"))
+        self.assertEqual(repository.get_materiality_profile(company.id), second)
+
+
 class VarianceTest(unittest.TestCase):
     def test_ytd_monthly_flow_and_threshold(self) -> None:
         company_id = uuid4()

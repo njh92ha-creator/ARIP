@@ -228,15 +228,22 @@ def delete_company(
     return {"deleted": str(company.id)}
 
 
-@router.post("/settings/materiality", status_code=201)
-def create_materiality(
+@router.get("/settings/materiality")
+def get_materiality(company_id: UUID) -> Any:
+    profile = repository.get_materiality_profile(company_id)
+    return encode(profile) if profile else None
+
+
+@router.put("/settings/materiality/{company_id}")
+def upsert_materiality(
+    company_id: UUID,
     payload: MaterialityCreate,
     user: CurrentUser = Depends(require_roles(Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
-    _entity(repository.companies, payload.company_id, "company")
+    _entity(repository.companies, company_id, "company")
     data = payload.model_dump(exclude={"approve"})
-    profile = MaterialityProfile(**data, status="APPROVED" if payload.approve else "DRAFT")
-    repository.save(profile)
+    data.pop("company_id")
+    profile = repository.upsert_materiality_profile(company_id, **data)
     return encode(profile)
 
 
