@@ -11,7 +11,6 @@ import {
 } from '@mui/material'
 import {
   AccountBalance,
-  Analytics,
   Dashboard,
   Description,
   EventNote,
@@ -28,7 +27,6 @@ const nav = [
   ['리스크 관리', '/risks', <Gavel />],
   ['회계사건(Event)', '/events', <EventNote />],
   ['전표 조회', '/journals', <Description />],
-  ['계정 증감(AVI)', '/account-variance', <Analytics />],
   ['Excel 업로드', '/uploads', <UploadFile />],
   ['설정', '/settings', <Settings />],
 ] as const

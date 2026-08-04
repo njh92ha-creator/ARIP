@@ -35,33 +35,6 @@ class MaterialityCreate(BaseModel):
     approve: bool = False
 
 
-class ThresholdInput(BaseModel):
-    comparison: Literal["MOM", "YOY"]
-    amount_threshold: Decimal
-    rate_threshold: Decimal
-    minimum_base_amount: Decimal
-    trigger_mode: Literal["ANY", "ALL"] = "ANY"
-
-
-class VarianceProfileCreate(BaseModel):
-    company_id: UUID
-    name: str
-    thresholds: list[ThresholdInput]
-    effective_from: date | None = None
-    effective_to: date | None = None
-    exceptions: list["VarianceExceptionInput"] = []
-    approve: bool = False
-
-
-class VarianceExceptionInput(BaseModel):
-    account_name: str
-    account_group: str = ""
-    comparison: Literal["MOM", "YOY"]
-    amount_threshold: Decimal
-    rate_threshold: Decimal
-    reason: str
-
-
 class MappingApprove(BaseModel):
     company_id: UUID
     source_type: Literal["GENERAL_LEDGER", "SETTLEMENT_SCHEDULE"]

@@ -19,15 +19,3 @@ test('감사 중요성은 현재 기준을 조회하고 검토 후 저장만 제
   assert.match(materialityComponent, /api\.put\(\s*`\/settings\/materiality\/\$\{company\.id\}`/)
   assert.doesNotMatch(materialityComponent, /임시 저장/)
 })
-
-test('AVI 설정은 기간 저장, 예외 기준 등록, 상세 결과 보기를 제공한다', async () => {
-  const source = await readFile(new URL('./SettingsPage.tsx', import.meta.url), 'utf8')
-  const start = source.lastIndexOf('function VarianceSettings')
-  const end = source.indexOf('function Segmented', start)
-  const aviComponent = source.slice(start, end)
-
-  assert.match(aviComponent, /api\.get(?:<[^>]+>)?\(\s*["']\/variance-settings\/current/)
-  assert.match(aviComponent, /api\.put\(\s*`\/variance-settings\/current\/\$\{company\.id\}`/)
-  assert.match(aviComponent, /예외 기준 추가/)
-  assert.match(aviComponent, /상세 결과 보기/)
-})

@@ -7,7 +7,6 @@ import { LoginPage } from './pages/LoginPage'
 import { RiskDetailPage, RiskListPage } from './pages/RiskPages'
 import { SettingsPage } from './pages/SettingsPage'
 import { UploadPage } from './pages/UploadPage'
-import { VariancePage } from './pages/VariancePage'
 
 export default function App() {
   return (
@@ -20,7 +19,6 @@ export default function App() {
         <Route path="events" element={<EventListPage />} />
         <Route path="events/:eventId" element={<EventDetailPage />} />
         <Route path="journals" element={<JournalPage />} />
-        <Route path="account-variance" element={<VariancePage />} />
         <Route path="uploads" element={<UploadPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>

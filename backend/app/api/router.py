@@ -23,7 +23,6 @@ from app.api.schemas import (
     MappingApprove,
     MaterialityCreate,
     RiskTransition,
-    VarianceProfileCreate,
 )
 from app.domain.models import (
     AuditLogEntry,
@@ -33,8 +32,6 @@ from app.domain.models import (
     MaterialityProfile,
     RiskMemoryEntry,
     RiskStatus,
-    VarianceProfile,
-    VarianceThreshold,
 )
 from app.domain.repository import repository
 from app.core.security import CurrentUser, Role, current_user, require_roles
@@ -42,7 +39,6 @@ from app.core.database import check_database
 from app.services.import_pipeline import normalize_general_ledger, normalize_settlement
 from app.services.mapping import propose_mapping
 from app.services.orchestrator import process_journals
-from app.services.variance import analyze_variance
 from app.services.closing_analysis import (
     analyze_closing_analysis_set,
     attach_general_ledger,
@@ -244,46 +240,6 @@ def upsert_materiality(
     data = payload.model_dump(exclude={"approve"})
     data.pop("company_id")
     profile = repository.upsert_materiality_profile(company_id, **data)
-    return encode(profile)
-
-
-@router.post("/variance-settings/profiles", status_code=201)
-def create_variance_profile(
-    payload: VarianceProfileCreate,
-    user: CurrentUser = Depends(require_roles(Role.CLOSING_MANAGER, Role.ADMIN)),
-) -> Any:
-    _entity(repository.companies, payload.company_id, "company")
-    profile = VarianceProfile(
-        company_id=payload.company_id,
-        name=payload.name,
-        thresholds=[VarianceThreshold(**item.model_dump()) for item in payload.thresholds],
-        status="APPROVED" if payload.approve else "DRAFT",
-    )
-    repository.save(profile)
-    return encode(profile)
-
-
-@router.get("/variance-settings/current")
-def get_current_variance_profile(company_id: UUID) -> Any:
-    profile = repository.get_variance_profile(company_id)
-    return encode(profile) if profile else None
-
-
-@router.put("/variance-settings/current/{company_id}")
-def upsert_current_variance_profile(
-    company_id: UUID,
-    payload: VarianceProfileCreate,
-    user: CurrentUser = Depends(require_roles(Role.CLOSING_MANAGER, Role.ADMIN)),
-) -> Any:
-    _entity(repository.companies, company_id, "company")
-    profile = repository.upsert_variance_profile(
-        company_id,
-        name=payload.name,
-        thresholds=[VarianceThreshold(**item.model_dump()) for item in payload.thresholds],
-        effective_from=payload.effective_from,
-        effective_to=payload.effective_to,
-        exceptions=[item.model_dump() for item in payload.exceptions],
-    )
     return encode(profile)
 
 
@@ -722,61 +678,6 @@ def get_job(job_id: str) -> Any:
     if not job:
         raise HTTPException(404, "job not found")
     return job
-
-
-@router.post("/account-variance/jobs")
-def run_variance(
-    company_id: UUID = Form(...),
-    mapping_profile_id: UUID = Form(...),
-    variance_profile_id: UUID = Form(...),
-    target_period: str = Form(...),
-    comparison: str = Form(...),
-    file: UploadFile = File(...),
-) -> Any:
-    mapping = _entity(repository.mapping_profiles, mapping_profile_id, "mapping profile")
-    profile = _entity(repository.variance_profiles, variance_profile_id, "variance profile")
-    if mapping.source_type != "SETTLEMENT_SCHEDULE" or mapping.company_id != company_id:
-        raise HTTPException(422, "settlement mapping profile required")
-    if profile.company_id != company_id or profile.status != "APPROVED":
-        raise HTTPException(422, "approved variance profile required")
-    path = _save_upload(file)
-    try:
-        rows = normalize_settlement(path, mapping, upload_period=target_period)
-        observations = analyze_variance(
-            company_id, rows, profile, target_period, comparison
-        )
-        for observation in observations:
-            repository.save(observation)
-        return {"status": "COMPLETED", "observations": encode(observations)}
-    finally:
-        path.unlink(missing_ok=True)
-
-
-@router.get("/variance-settings/profiles")
-def list_variance_profiles(company_id: UUID) -> Any:
-    return encode(
-        [
-            profile
-            for profile in repository.variance_profiles.values()
-            if profile.company_id == company_id
-        ]
-    )
-
-
-@router.get("/account-variance/dashboard")
-def variance_dashboard(company_id: UUID, period: str | None = None) -> Any:
-    items = [
-        item
-        for item in repository.variance_observations.values()
-        if item.company_id == company_id and (not period or item.period == period)
-    ]
-    exposure = sum((abs(item.delta_amount) for item in items), Decimal("0"))
-    return {
-        "riskSeparation": "QUANTITATIVE_SIGNAL_LINKED_TO_AUDIT_RISK",
-        "flaggedAccounts": len({item.account_code for item in items}),
-        "exposureAmount": str(exposure),
-        "observations": encode(items),
-    }
 
 
 @router.get("/dashboard")
