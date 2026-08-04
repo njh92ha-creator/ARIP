@@ -193,6 +193,26 @@ class VarianceProfileRepositoryTest(unittest.TestCase):
         self.assertEqual(len(profile.exceptions), 1)
         self.assertEqual(repository.get_variance_profile(company.id), profile)
 
+    def test_get_variance_profile_upgrades_legacy_saved_profile(self) -> None:
+        repository = InMemoryRepository(persistent=False)
+        company = repository.save(CompanySettings("P003", "Legacy AVI company", "Manufacturing"))
+        legacy = VarianceProfile(
+            company_id=company.id,
+            name="Legacy AVI",
+            thresholds=[VarianceThreshold("MOM", Decimal("100"), Decimal("0.2"), Decimal("10"))],
+            status="APPROVED",
+        )
+        del legacy.effective_from
+        del legacy.effective_to
+        del legacy.exceptions
+        repository.save(legacy)
+
+        profile = repository.get_variance_profile(company.id)
+
+        self.assertIsNotNone(profile)
+        self.assertIsNone(profile.effective_from)
+        self.assertEqual(profile.exceptions, [])
+
 
 class VarianceTest(unittest.TestCase):
     def test_ytd_monthly_flow_and_threshold(self) -> None:

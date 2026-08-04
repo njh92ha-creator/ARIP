@@ -226,10 +226,24 @@ class InMemoryRepository:
             return self.save(profile)
 
     def get_variance_profile(self, company_id: UUID) -> VarianceProfile | None:
-        return next(
-            (item for item in self.variance_profiles.values() if item.company_id == company_id),
-            None,
-        )
+        with self._lock:
+            profile = next(
+                (item for item in self.variance_profiles.values() if item.company_id == company_id),
+                None,
+            )
+            if profile is None or hasattr(profile, "effective_from"):
+                return profile
+            upgraded = VarianceProfile(
+                company_id=profile.company_id,
+                name=profile.name,
+                thresholds=profile.thresholds,
+                status=profile.status,
+                version=profile.version,
+                id=profile.id,
+            )
+            self.variance_profiles[upgraded.id] = upgraded
+            self._persist("VarianceProfile", upgraded)
+            return upgraded
 
     def upsert_variance_profile(
         self,
