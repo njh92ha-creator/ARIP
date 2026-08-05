@@ -47,3 +47,5 @@ class RuntimePersistenceTests(unittest.TestCase):
             params={"company_id": str(company_id)},
         ).json()
         self.assertEqual(candidates[0]["relativePath"], "audit-guide.txt")
+        self.assertEqual(candidates[0]["status"], "APPROVED")
+        self.assertTrue(candidates[0]["ragEligible"])

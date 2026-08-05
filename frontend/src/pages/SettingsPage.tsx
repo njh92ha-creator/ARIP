@@ -1677,7 +1677,7 @@ function KnowledgeSettings({ company }: { company?: Company }) {
       await api.get("/settings/knowledge-sources/local-standards/candidates", {
         params: { company_id: company?.id },
       })
-    ).data as Array<{ status: string; ragEligible: boolean }>,
+    ).data as KnowledgeDocument[],
     enabled: Boolean(company?.id),
   });
   const candidateItems = candidates.data ?? [];
@@ -1724,7 +1724,7 @@ function KnowledgeSettings({ company }: { company?: Company }) {
         { params: { company_id: company.id } },
       );
       setMessage(
-        `${response.data.uploaded}개 파일을 업로드하고 확인 대기(PENDING)로 등록했습니다.`,
+        `${response.data.uploaded}개 파일을 업로드하고 지식베이스에 등록했습니다.`,
       );
       await candidates.refetch();
     } catch {
@@ -1741,7 +1741,7 @@ function KnowledgeSettings({ company }: { company?: Company }) {
         { params: { company_id: company.id } },
       );
       setMessage(
-        `${response.data.scanned}개 파일을 확인 대기(PENDING)로 등록했습니다.`,
+        `${response.data.scanned}개 파일을 지식베이스에 등록했습니다.`,
       );
       await candidates.refetch();
     } catch {
@@ -1888,7 +1888,7 @@ function KnowledgeSettings({ company }: { company?: Company }) {
               {error}
             </Alert>
           )}
-          <KnowledgeTable />
+          <KnowledgeTable documents={candidateItems} />
         </CardContent>
       </Card>
       <AiSummary footer>
@@ -1954,150 +1954,69 @@ function KnowledgeKpi({
   );
 }
 
-function KnowledgeTable() {
-  const rows = [
-    {
-      icon: <PictureAsPdfOutlined />,
-      name: "K-IFRS 제1038호 무형자산.pdf",
-      type: "회계기준서",
-      date: "2024.03.12",
-      version: "v1.2",
-      status: "승인됨",
-      rag: true,
-    },
-    {
-      icon: <LibraryBooksOutlined />,
-      name: "개발비 회계정책 (내부운영지침).hwp",
-      type: "내부규정",
-      date: "2024.05.15",
-      version: "v1.0",
-      status: "승인 대기",
-      rag: false,
-    },
-    {
-      icon: <PictureAsPdfOutlined />,
-      name: "2024년 결산 가이드라인_final.pdf",
-      type: "가이드라인",
-      date: "2024.04.02",
-      version: "v2.1",
-      status: "승인됨",
-      rag: true,
-    },
-  ];
+type KnowledgeDocument = {
+  id: string;
+  relativePath: string;
+  status: string;
+  ragEligible: boolean;
+};
+
+function KnowledgeTable({ documents }: { documents: KnowledgeDocument[] }) {
   return (
     <Box sx={{ mt: 3.5 }}>
-      <Stack
-        direction="row"
-        justifyContent="space-between"
-        alignItems="center"
-        sx={{ mb: 1.5 }}
-      >
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
         <Typography variant="body2" fontWeight={700}>
-          전체 문서 목록{" "}
-          <Box
-            component="span"
-            sx={{ color: colors.primary, fontWeight: 400, ml: 0.5 }}
-          >
-            22
+          전체 문서 목록
+          <Box component="span" sx={{ color: colors.primary, fontWeight: 400, ml: 0.75 }}>
+            {documents.length}
           </Box>
         </Typography>
-        <Stack direction="row" spacing={1}>
-          <TextField
-            size="small"
-            placeholder="문서 검색..."
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <Search fontSize="small" />
-                  </InputAdornment>
-                ),
-              },
-            }}
-            sx={smallFieldSx}
-          />
-          <Button
-            variant="outlined"
-            sx={{ minWidth: 42, p: 1, borderColor: colors.border }}
-          >
-            <FilterList />
-          </Button>
-        </Stack>
       </Stack>
-      <TableContainer
-        sx={{ border: `1px solid ${colors.border}`, borderRadius: "12px" }}
-      >
+      <TableContainer sx={{ border: `1px solid ${colors.border}`, borderRadius: "12px" }}>
         <Table size="small">
           <TableHead>
             <TableRow>
-              {[
-                "문서명",
-                "유형",
-                "업로드일",
-                "버전",
-                "상태",
-                "RAG 사용",
-                "조치",
-              ].map((item) => (
-                <TableCell
-                  key={item}
-                  align={
-                    ["버전", "상태", "RAG 사용", "조치"].includes(item)
-                      ? "center"
-                      : "left"
-                  }
-                >
+              {["문서명", "유형", "상태", "RAG 사용"].map((item) => (
+                <TableCell key={item} align={item === "문서명" || item === "유형" ? "left" : "center"}>
                   {item}
                 </TableCell>
               ))}
             </TableRow>
           </TableHead>
           <TableBody>
-            {rows.map((row) => (
-              <TableRow key={row.name}>
-                <TableCell>
-                  <Stack direction="row" spacing={1.5} alignItems="center">
-                    <Box
-                      sx={{
-                        color: row.name.endsWith(".pdf")
-                          ? colors.error
-                          : colors.primary,
-                      }}
-                    >
-                      {row.icon}
-                    </Box>
-                    <Typography variant="body2" fontWeight={700}>
-                      {row.name}
-                    </Typography>
-                  </Stack>
-                </TableCell>
-                <TableCell sx={{ color: colors.secondary }}>
-                  {row.type}
-                </TableCell>
-                <TableCell sx={{ color: colors.secondary }}>
-                  {row.date}
-                </TableCell>
-                <TableCell align="center" sx={{ color: colors.secondary }}>
-                  {row.version}
-                </TableCell>
-                <TableCell align="center">
-                  <StatusChip
-                    label={row.status}
-                    tone={row.status === "승인됨" ? "success" : "warning"}
-                  />
-                </TableCell>
-                <TableCell align="center">
-                  {row.rag ? (
-                    <CheckCircle sx={{ color: colors.success }} />
-                  ) : (
-                    <PendingOutlined sx={{ color: "#C2C6D5" }} />
-                  )}
-                </TableCell>
-                <TableCell align="center">
-                  <MoreVert sx={{ color: colors.secondary }} />
+            {documents.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={4} align="center" sx={{ py: 4, color: colors.secondary }}>
+                  업로드된 문서가 없습니다.
                 </TableCell>
               </TableRow>
-            ))}
+            ) : (
+              documents.map((document) => {
+                const extension = document.relativePath.split(".").pop()?.toUpperCase() ?? "-";
+                const approved = document.status === "APPROVED";
+                return (
+                  <TableRow key={document.id}>
+                    <TableCell>
+                      <Stack direction="row" spacing={1.5} alignItems="center">
+                        <PictureAsPdfOutlined sx={{ color: colors.primary }} />
+                        <Typography variant="body2" fontWeight={700}>{document.relativePath}</Typography>
+                      </Stack>
+                    </TableCell>
+                    <TableCell sx={{ color: colors.secondary }}>{extension}</TableCell>
+                    <TableCell align="center">
+                      <StatusChip label={approved ? "승인됨" : "승인 대기"} tone={approved ? "success" : "warning"} />
+                    </TableCell>
+                    <TableCell align="center">
+                      {document.ragEligible ? (
+                        <CheckCircle sx={{ color: colors.success }} />
+                      ) : (
+                        <PendingOutlined sx={{ color: "#C2C6D5" }} />
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
           </TableBody>
         </Table>
       </TableContainer>

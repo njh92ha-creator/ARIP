@@ -362,8 +362,8 @@ def scan_knowledge_source(
             "companyId": str(company_id),
             "relativePath": str(path.relative_to(root)),
             "contentHash": digest,
-            "status": "PENDING",
-            "ragEligible": False,
+            "status": "APPROVED",
+            "ragEligible": True,
         }
         scanned += 1
     _save_knowledge_candidates()
@@ -399,7 +399,7 @@ async def upload_knowledge_documents(
         knowledge_candidates[candidate_id] = {
             "id": candidate_id, "companyId": str(company_id),
             "relativePath": name, "contentHash": digest,
-            "status": "PENDING", "ragEligible": False,
+            "status": "APPROVED", "ragEligible": True,
         }
         repository.save_runtime_setting(
             f"knowledge-document:{candidate_id}",
