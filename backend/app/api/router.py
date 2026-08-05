@@ -514,8 +514,8 @@ def list_mapping_profiles(company_id: UUID, source_type: str | None = None) -> A
 @router.post("/closing-analysis-sets", status_code=201)
 def create_close_analysis_set(
     company_id: UUID = Form(...),
-    fiscal_year: int = Form(...),
-    fiscal_period: int = Form(...),
+    fiscal_year: int = Form(0),
+    fiscal_period: int = Form(0),
     user: CurrentUser = Depends(require_roles(Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
     _entity(repository.companies, company_id, "company")
@@ -601,16 +601,6 @@ def attach_closing_general_ledger(
                 "stage": "GENERAL_LEDGER_RECONCILIATION",
                 "reconciliation": encode(reconciliation),
             }
-        mismatched_periods = [
-            line
-            for line in lines
-            if line.fiscal_year != closing_set.fiscal_year
-            or line.fiscal_period != closing_set.fiscal_period
-        ]
-        if mismatched_periods:
-            raise HTTPException(
-                422, "general ledger fiscal year/period does not match closing analysis set"
-            )
         closing_set = attach_general_ledger(
             repository, closing_set, lines, mapping_profile_id=profile.id
         )
@@ -645,8 +635,7 @@ def attach_closing_settlement_schedule(
         raise HTTPException(422, "approved settlement schedule mapping profile required")
     path = _save_upload(file)
     try:
-        period = f"{closing_set.fiscal_year:04d}-{closing_set.fiscal_period:02d}"
-        rows = normalize_settlement(path, profile, upload_period=period)
+        rows = normalize_settlement(path, profile, upload_period="UPLOADED")
         balances = settlement_balances_from_rows(
             closing_set.company_id, rows, closing_set.fiscal_year, closing_set.fiscal_period
         )

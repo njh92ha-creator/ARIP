@@ -17,8 +17,6 @@ const sourceDescription = (type: SourceType) => type === 'GENERAL_LEDGER'
 export function UploadPage() {
   const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: async () => (await api.get<Company[]>('/companies')).data })
   const company = companies?.[0]
-  const [year, setYear] = useState(new Date().getFullYear())
-  const [period, setPeriod] = useState(new Date().getMonth() + 1)
   const [closingSet, setClosingSet] = useState<ClosingAnalysisSet>()
   const [ledger, setLedger] = useState<SourceState>(emptySource())
   const [settlement, setSettlement] = useState<SourceState>(emptySource())
@@ -30,14 +28,10 @@ export function UploadPage() {
   const activeCompany = company
   const getSource = (type: SourceType) => type === 'GENERAL_LEDGER' ? ledger : settlement
   const setSource = (type: SourceType, value: SourceState) => type === 'GENERAL_LEDGER' ? setLedger(value) : setSettlement(value)
-  const resetScope = () => { setClosingSet(undefined); setLedger(emptySource()); setSettlement(emptySource()); setResult(undefined) }
-
   async function ensureSet(): Promise<ClosingAnalysisSet> {
-    if (closingSet && closingSet.fiscal_year === year && closingSet.fiscal_period === period) return closingSet
+    if (closingSet) return closingSet
     const form = new FormData()
     form.append('company_id', activeCompany.id)
-    form.append('fiscal_year', String(year))
-    form.append('fiscal_period', String(period))
     const response = await api.post<ClosingAnalysisSet>('/closing-analysis-sets', form)
     setClosingSet(response.data)
     return response.data
@@ -124,10 +118,10 @@ export function UploadPage() {
 
   const ready = Boolean(closingSet && ledger.attached && settlement.attached)
   return <Box sx={{ pb: 3 }}>
-    <Box sx={{ mb: 3 }}><Typography variant="h4">결산 자료 업로드</Typography><Typography color="text.secondary" sx={{ mt: 0.75 }}>동일한 회사와 결산 기간의 총계정원장 및 결산 명세서를 연결해 통합 분석을 준비합니다.</Typography></Box>
+    <Box sx={{ mb: 3 }}><Typography variant="h4">결산 자료 업로드</Typography><Typography color="text.secondary" sx={{ mt: 0.75 }}>업로드한 총계정원장과 정산표를 연결해 통합 분석을 준비합니다.</Typography></Box>
     <Card sx={{ mb: 2.5 }}><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2.5} alignItems={{ md: 'center' }} justifyContent="space-between"><Box><Typography variant="h6">분석 범위</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{company.company_name} · 결산 기준 기간을 선택하세요.</Typography></Box><Stack direction="row" spacing={1.5}><TextField label="회계연도" type="number" value={year} onChange={(event) => { setYear(Number(event.target.value)); resetScope() }} /><TextField label="결산월" type="number" inputProps={{ min: 1, max: 12 }} value={period} onChange={(event) => { setPeriod(Number(event.target.value)); resetScope() }} /></Stack></Stack>
-      {closingSet && <Alert sx={{ mt: 2.5 }} severity={closingSet.status === 'COMPLETED' ? 'success' : 'info'}>분석 세트 {closingSet.fiscal_year}-{String(closingSet.fiscal_period).padStart(2, '0')} · {closingSet.status} · 대사 상태: {closingSet.reconciliation_status}</Alert>}
+      <Box><Typography variant="h6">분석 대상</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{company.company_name} · 업로드한 총계정원장과 정산표만 분석합니다.</Typography></Box>
+      {closingSet && <Alert sx={{ mt: 2.5 }} severity={closingSet.status === 'COMPLETED' ? 'success' : 'info'}>분석 자료 연결 상태: {closingSet.status} · 대사 상태: {closingSet.reconciliation_status}</Alert>}
     </CardContent></Card>
     <Typography variant="h6" sx={{ mb: 1.5 }}>분석 자료 연결</Typography>
     <Grid container spacing={2.5}><Grid size={{ xs: 12, lg: 6 }}>{sourceCard('GENERAL_LEDGER')}</Grid><Grid size={{ xs: 12, lg: 6 }}>{sourceCard('SETTLEMENT_SCHEDULE')}</Grid></Grid>

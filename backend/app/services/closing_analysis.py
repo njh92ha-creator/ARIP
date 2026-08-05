@@ -24,10 +24,10 @@ from app.services.variance import analyze_variance
 
 
 def create_closing_analysis_set(
-    repo: Any, company_id: UUID, fiscal_year: int, fiscal_period: int
+    repo: Any, company_id: UUID, fiscal_year: int = 0, fiscal_period: int = 0
 ) -> ClosingAnalysisSet:
-    """Return the single paired analysis container for one company close."""
-    if fiscal_period < 1 or fiscal_period > 12:
+    """Return the single paired analysis container for company uploads."""
+    if fiscal_period and (fiscal_period < 1 or fiscal_period > 12):
         raise ValueError("fiscal_period must be between 1 and 12")
     existing = repo.closing_set_by_scope(company_id, fiscal_year, fiscal_period)
     if existing:
