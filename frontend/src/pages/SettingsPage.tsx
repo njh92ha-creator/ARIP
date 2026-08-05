@@ -1671,6 +1671,19 @@ function KnowledgeSettings({ company }: { company?: Company }) {
     queryKey: ["runtime-settings-v2"],
     queryFn: async () => (await api.get("/settings/runtime")).data,
   });
+  const candidates = useQuery({
+    queryKey: ["knowledge-candidates", company?.id],
+    queryFn: async () => (
+      await api.get("/settings/knowledge-sources/local-standards/candidates", {
+        params: { company_id: company?.id },
+      })
+    ).data as Array<{ status: string; ragEligible: boolean }>,
+    enabled: Boolean(company?.id),
+  });
+  const candidateItems = candidates.data ?? [];
+  const approvedCount = candidateItems.filter((item) => item.status === "APPROVED").length;
+  const pendingCount = candidateItems.filter((item) => item.status === "PENDING").length;
+  const ragAvailableCount = candidateItems.filter((item) => item.ragEligible).length;
   useEffect(() => {
     const source = runtime.data?.knowledgeSources?.find(
       (item: { company_id?: string }) => item.company_id === company?.id,
@@ -1713,6 +1726,7 @@ function KnowledgeSettings({ company }: { company?: Company }) {
       setMessage(
         `${response.data.uploaded}개 파일을 업로드하고 확인 대기(PENDING)로 등록했습니다.`,
       );
+      await candidates.refetch();
     } catch {
       setError("파일 업로드에 실패했습니다. 백엔드 로그를 확인해 주세요.");
     }
@@ -1729,6 +1743,7 @@ function KnowledgeSettings({ company }: { company?: Company }) {
       setMessage(
         `${response.data.scanned}개 파일을 확인 대기(PENDING)로 등록했습니다.`,
       );
+      await candidates.refetch();
     } catch {
       setError(
         "폴더 스캔에 실패했습니다. Windows 경로는 Docker에서 직접 스캔할 수 없으므로 파일 업로드를 사용해 주세요.",
@@ -1754,17 +1769,17 @@ function KnowledgeSettings({ company }: { company?: Company }) {
         </Box>
         <CardContent sx={{ p: 3 }}>
           <Grid container spacing={3} sx={{ mb: 3 }}>
-            <KnowledgeKpi label="승인됨" value="18" suffix="↑ 2" />
+            <KnowledgeKpi label="승인됨" value={String(approvedCount)} suffix="건" />
             <KnowledgeKpi
               label="승인 대기"
-              value="4"
+              value={String(pendingCount)}
               suffix="건"
               tone={colors.warning}
             />
             <KnowledgeKpi
               label="RAG 사용 가능"
-              value="18"
-              suffix="정상 작동 중"
+              value={String(ragAvailableCount)}
+              suffix="건"
               tone={colors.primary}
               selected
             />
@@ -1877,10 +1892,8 @@ function KnowledgeSettings({ company }: { company?: Company }) {
         </CardContent>
       </Card>
       <AiSummary footer>
-        현재 등록된 지식베이스 문서는 총 22건으로, <b>회계기준서(12건)</b>가
-        가장 높은 비중을 차지하고 있습니다. 최근 업데이트된 ‘개발비 회계정책’은
-        RAG 인덱싱 대기 상태이며, 승인 후 실시간 리스크 탐지에 활용될
-        예정입니다.
+        현재 회사에 등록된 지식베이스 문서는 총 <b>{candidateItems.length}건</b>이며,
+        승인됨 {approvedCount}건, 승인 대기 {pendingCount}건, RAG 사용 가능 {ragAvailableCount}건입니다.
       </AiSummary>
     </>
   );
