@@ -388,6 +388,28 @@ async def upload_knowledge_documents(
 ) -> Any:
     """Upload standards from the browser into the configured PostgreSQL store."""
     allowed = {".pdf", ".hwp", ".hwpx", ".docx", ".txt", ".md", ".html"}
+    existing_names = {
+        str(item.get("relativePath", "")).casefold()
+        for item in knowledge_candidates.values()
+        if item.get("companyId") == str(company_id)
+    }
+    requested_names = [
+        Path(upload.filename or "document").name
+        for upload in files
+        if Path(upload.filename or "document").suffix.lower() in allowed
+    ]
+    duplicate_names = sorted(
+        {
+            name
+            for name in requested_names
+            if name.casefold() in existing_names or requested_names.count(name) > 1
+        }
+    )
+    if duplicate_names:
+        raise HTTPException(
+            409,
+            detail=f"이미 등록된 파일명입니다: {', '.join(duplicate_names)}",
+        )
     scanned = 0
     for upload in files:
         name = Path(upload.filename or "document").name

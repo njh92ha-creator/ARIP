@@ -1666,6 +1666,7 @@ function KnowledgeSettings({ company }: { company?: Company }) {
   const [rootDirectory, setRootDirectory] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [uploadDialogMessage, setUploadDialogMessage] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const runtime = useQuery({
     queryKey: ["runtime-settings-v2"],
@@ -1727,8 +1728,10 @@ function KnowledgeSettings({ company }: { company?: Company }) {
         `${response.data.uploaded}개 파일을 업로드하고 지식베이스에 등록했습니다.`,
       );
       await candidates.refetch();
-    } catch {
-      setError("파일 업로드에 실패했습니다. 백엔드 로그를 확인해 주세요.");
+    } catch (caught) {
+      const detail = (caught as { response?: { data?: { detail?: string } } })
+        .response?.data?.detail;
+      setUploadDialogMessage(detail ?? "파일 업로드에 실패했습니다. 다시 확인해 주세요.");
     }
   };
   const scanFolder = async () => {
@@ -1891,6 +1894,15 @@ function KnowledgeSettings({ company }: { company?: Company }) {
           <KnowledgeTable documents={candidateItems} />
         </CardContent>
       </Card>
+      <Dialog open={Boolean(uploadDialogMessage)} onClose={() => setUploadDialogMessage("")}> 
+        <DialogTitle>파일 업로드 불가</DialogTitle>
+        <DialogContent>
+          <Typography>{uploadDialogMessage}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="contained" onClick={() => setUploadDialogMessage("")}>닫기</Button>
+        </DialogActions>
+      </Dialog>
       <AiSummary footer>
         현재 회사에 등록된 지식베이스 문서는 총 <b>{candidateItems.length}건</b>이며,
         승인됨 {approvedCount}건, 승인 대기 {pendingCount}건, RAG 사용 가능 {ragAvailableCount}건입니다.

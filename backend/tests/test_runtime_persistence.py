@@ -49,3 +49,10 @@ class RuntimePersistenceTests(unittest.TestCase):
         self.assertEqual(candidates[0]["relativePath"], "audit-guide.txt")
         self.assertEqual(candidates[0]["status"], "APPROVED")
         self.assertTrue(candidates[0]["ragEligible"])
+
+        duplicate = client.post(
+            "/api/v1/settings/knowledge-sources/local-standards/upload",
+            params={"company_id": str(company_id)},
+            files=[("files", ("audit-guide.txt", b"second version", "text/plain"))],
+        )
+        self.assertEqual(duplicate.status_code, 409)
