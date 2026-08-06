@@ -762,8 +762,16 @@ def list_risks(company_id: UUID) -> Any:
 @router.get("/risks/{risk_id}")
 def get_risk(risk_id: UUID) -> Any:
     risk = _entity(repository.risks, risk_id, "risk")
+    event = repository.events.get(risk.event_id)
+    lines = [
+        line
+        for line in repository.journal_lines.values()
+        if event and line.id in event.journal_line_ids
+    ]
     return {
         **encode(risk),
+        "event": encode(event) if event else None,
+        "journalLines": encode(lines),
         "memory": encode(repository.risk_memory.get(risk.id, [])),
         "crossFindings": encode(
             [
@@ -836,7 +844,14 @@ def get_event(event_id: UUID) -> Any:
     lines = [
         line for line in repository.journal_lines.values() if line.id in event.journal_line_ids
     ]
-    return {**encode(event), "journalLines": encode(lines)}
+    related_risks = [
+        risk for risk in repository.risks.values() if risk.event_id == event.id
+    ]
+    return {
+        **encode(event),
+        "journalLines": encode(lines),
+        "relatedRisks": encode(related_risks),
+    }
 
 
 @router.get("/journals")
