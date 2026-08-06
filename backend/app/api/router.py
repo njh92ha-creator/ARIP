@@ -96,9 +96,12 @@ def _save_runtime_settings() -> None:
 def _ai_runtime_options() -> dict[str, Any]:
     """Return non-secret AI execution controls saved from the Settings screen."""
     connection = runtime_settings.get("aiConnection", {})
+    secret_reference = str(connection.get("secretReference") or "env:OPENAI_API_KEY")
     return {
         "external_ai_enabled": bool(connection.get("enabled")),
         "ai_model": str(connection.get("chatModel") or "gpt-4o-mini"),
+        "ai_provider": str(connection.get("provider") or "openai"),
+        "ai_key_env": secret_reference.removeprefix("env:") if secret_reference.startswith("env:") else None,
     }
 
 
@@ -321,11 +324,24 @@ def test_ai_connection(
     if not api_key:
         return {"ok": False, "message": "연결할 API 키를 찾지 못했습니다."}
     try:
-        response = httpx.get(
-            "https://api.openai.com/v1/models",
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=10.0,
-        )
+        if payload.provider.lower() == "nvidia":
+            response = httpx.post(
+                "https://integrate.api.nvidia.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": payload.chat_model or "meta/llama-3.1-70b-instruct",
+                    "messages": [{"role": "user", "content": "Reply only with OK."}],
+                    "max_tokens": 16,
+                    "temperature": 0,
+                },
+                timeout=20.0,
+            )
+        else:
+            response = httpx.get(
+                "https://api.openai.com/v1/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=10.0,
+            )
     except httpx.HTTPError:
         return {"ok": False, "message": "OpenAI 연결에 실패했습니다. 네트워크 상태를 확인해 주세요."}
     if response.status_code == 200:

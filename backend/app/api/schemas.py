@@ -68,6 +68,8 @@ class AiConnectionInput(BaseModel):
 class AiConnectionTestInput(BaseModel):
     api_key: str | None = None
     secret_reference: str | None = None
+    provider: str = "openai"
+    chat_model: str | None = None
 
     def model_post_init(self, __context: Any) -> None:
         if not self.api_key and not self.secret_reference:

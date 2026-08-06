@@ -110,8 +110,46 @@ class OpenAIAnalysisProvider:
         return parsed
 
 
+@dataclass(slots=True)
+class NvidiaAnalysisProvider:
+    """NVIDIA NIM's OpenAI-compatible Chat Completions integration."""
+
+    model: str
+    api_key_env: str = "NVIDIA_API_KEY"
+    enabled: bool = True
+    base_url: str = "https://integrate.api.nvidia.com/v1"
+
+    def analyze(self, event_facts: dict[str, Any], references: list[dict[str, Any]]) -> dict[str, Any]:
+        if not self.enabled:
+            raise AiUnavailableError("external AI is disabled")
+        api_key = os.getenv(self.api_key_env)
+        if not api_key:
+            raise AiUnavailableError(f"{self.api_key_env} is not configured")
+        from openai import OpenAI
+
+        client = OpenAI(base_url=self.base_url, api_key=api_key, max_retries=0)
+        completion = client.chat.completions.create(
+            model=self.model,
+            temperature=0,
+            max_tokens=1600,
+            messages=[
+                {"role": "system", "content": "You are an audit-risk analysis assistant. Do not conclude that an accounting error exists. Return only valid JSON matching this schema: " + json.dumps(RISK_ANALYSIS_SCHEMA, ensure_ascii=False)},
+                {"role": "user", "content": json.dumps({"eventFacts": event_facts, "approvedReferences": references, "policy": "Use only supplied reference IDs. If none apply, return an empty referenceIds list and explain missing evidence."}, ensure_ascii=False)},
+            ],
+        )
+        content = completion.choices[0].message.content or ""
+        if content.startswith("```"):
+            content = content.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        parsed = json.loads(content)
+        unknown = set(parsed["referenceIds"]) - {str(reference["id"]) for reference in references}
+        if unknown:
+            raise ValueError(f"model returned unapproved references: {sorted(unknown)}")
+        return parsed
+
+
 def provider_from_settings(
-    *, enabled: bool | None = None, chat_model: str | None = None
+    *, enabled: bool | None = None, chat_model: str | None = None,
+    provider: str = "openai", api_key_env: str | None = None,
 ) -> AnalysisProvider:
     enabled = settings.enable_external_ai if enabled is None else enabled
     model = chat_model or settings.chat_model
@@ -119,4 +157,6 @@ def provider_from_settings(
         return DisabledProvider()
     if not model:
         return DisabledProvider("chat model is not configured")
-    return OpenAIAnalysisProvider(model=model, enabled=enabled)
+    if provider.lower() == "nvidia":
+        return NvidiaAnalysisProvider(model=model, api_key_env=api_key_env or "NVIDIA_API_KEY", enabled=enabled)
+    return OpenAIAnalysisProvider(model=model, api_key_env=api_key_env or "OPENAI_API_KEY", enabled=enabled)

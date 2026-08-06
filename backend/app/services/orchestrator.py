@@ -23,6 +23,8 @@ def process_journals(
     analysis_provider: AnalysisProvider | None = None,
     external_ai_enabled: bool | None = None,
     ai_model: str | None = None,
+    ai_provider: str = "openai",
+    ai_key_env: str | None = None,
     cross_findings: list[Any] | None = None,
 ) -> dict[str, int]:
     for line in lines:
@@ -90,7 +92,8 @@ def process_journals(
         if risk is None and ai_enabled:
             try:
                 provider = analysis_provider or provider_from_settings(
-                    enabled=ai_enabled, chat_model=ai_model
+                    enabled=ai_enabled, chat_model=ai_model,
+                    provider=ai_provider, api_key_env=ai_key_env,
                 )
                 references = approved_reference_context(
                     event.company_id, knowledge_candidates
