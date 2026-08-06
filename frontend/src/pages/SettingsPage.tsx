@@ -1595,6 +1595,7 @@ function SimulationPreview() {
 
 function AiSettings() {
   const [apiKey, setApiKey] = useState("");
+  const [provider, setProvider] = useState("openai");
   const [model, setModel] = useState("gpt-4o-mini");
   const [enabled, setEnabled] = useState("false");
   const [message, setMessage] = useState("");
@@ -1605,16 +1606,17 @@ function AiSettings() {
 
   useEffect(() => {
     if (!connection) return;
+    if (connection.provider) setProvider(String(connection.provider));
     if (connection.chatModel) setModel(String(connection.chatModel));
     setEnabled(connection.enabled ? "true" : "false");
-  }, [connection?.chatModel, connection?.enabled]);
+  }, [connection?.provider, connection?.chatModel, connection?.enabled]);
 
   const save = async () => {
     setMessage("");
     setError("");
     try {
       const result = await api.patch("/settings/ai-connection", {
-        provider: "openai",
+        provider,
         chat_model: model,
         embedding_model: "text-embedding-3-large",
         secret_reference: "env:OPENAI_API_KEY",
@@ -1633,7 +1635,7 @@ function AiSettings() {
     setError("");
     setTesting(true);
     try {
-      const result = await api.post("/settings/ai-connection/test", apiKey ? { api_key: apiKey } : { secret_reference: "env:OPENAI_API_KEY" });
+      const result = await api.post("/settings/ai-connection/test", apiKey ? { api_key: apiKey, provider, chat_model: model } : { secret_reference: "env:OPENAI_API_KEY", provider, chat_model: model });
       if (result.data.ok) {
         setMessage(result.data.message);
       } else {
@@ -1653,8 +1655,8 @@ function AiSettings() {
       <Grid container spacing={4}>
         <Grid size={{ xs: 12, lg: 8 }}><Box component="form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
           <Grid container spacing={2.5}>
-            <Grid size={{ xs: 12, md: 6 }}><Field label="PROVIDER"><TextField value="OpenAI" fullWidth slotProps={{ input: { readOnly: true } }} sx={fieldSx} /></Field></Grid>
-            <Grid size={{ xs: 12, md: 6 }}><Field label="CHAT MODEL"><TextField select value={model} onChange={(event) => setModel(event.target.value)} fullWidth sx={fieldSx}><MenuItem value="gpt-4o-mini">gpt-4o-mini</MenuItem><MenuItem value="gpt-4o">gpt-4o</MenuItem></TextField></Field></Grid>
+            <Grid size={{ xs: 12, md: 6 }}><Field label="PROVIDER"><TextField select value={provider} onChange={(event) => setProvider(event.target.value)} fullWidth sx={fieldSx}><MenuItem value="openai">OpenAI</MenuItem><MenuItem value="nvidia">NVIDIA NIM</MenuItem></TextField></Field></Grid>
+            <Grid size={{ xs: 12, md: 6 }}><Field label="CHAT MODEL"><TextField select value={model} onChange={(event) => setModel(event.target.value)} fullWidth sx={fieldSx}><MenuItem value="gpt-4o-mini">gpt-4o-mini</MenuItem><MenuItem value="gpt-4o">gpt-4o</MenuItem><MenuItem value="meta/llama-3.1-70b-instruct">NVIDIA · Llama 3.1 70B</MenuItem><MenuItem value="meta/llama-3.2-3b-instruct">NVIDIA · Llama 3.2 3B</MenuItem></TextField></Field></Grid>
             <Grid size={{ xs: 12, md: 6 }}><Field label="EMBEDDING MODEL"><TextField value="text-embedding-3-large" fullWidth slotProps={{ input: { readOnly: true } }} sx={fieldSx} /></Field></Grid>
             <Grid size={{ xs: 12, md: 6 }}><Field label="OPENAI API KEY"><TextField type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="new-password" placeholder="연결 테스트용 API 키 입력" fullWidth helperText="저장되지 않으며 연결 테스트에만 사용됩니다." sx={fieldSx} /></Field></Grid>
             <Grid size={{ xs: 12, md: 6 }}><Field label="AI 기능 상태"><TextField select value={enabled} onChange={(event) => setEnabled(event.target.value)} fullWidth sx={fieldSx}><MenuItem value="false">비활성</MenuItem><MenuItem value="true">활성</MenuItem></TextField></Field></Grid>
