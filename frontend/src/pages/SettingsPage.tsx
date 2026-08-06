@@ -1594,7 +1594,6 @@ function SimulationPreview() {
 }
 
 function AiSettings() {
-  const [apiKey, setApiKey] = useState("");
   const [provider, setProvider] = useState("openai");
   const [model, setModel] = useState("gpt-4o-mini");
   const [enabled, setEnabled] = useState("false");
@@ -1623,7 +1622,6 @@ function AiSettings() {
         enabled: enabled === "true",
       });
       await runtime.refetch();
-      setApiKey("");
       setMessage(result.data.secretReadable ? "AI 연결 설정을 저장했습니다." : "설정은 저장되었습니다. Vercel 환경변수 OPENAI_API_KEY를 등록하면 AI 기능을 사용할 수 있습니다.");
     } catch {
       setError("AI 연결 설정 저장에 실패했습니다.");
@@ -1635,7 +1633,7 @@ function AiSettings() {
     setError("");
     setTesting(true);
     try {
-      const result = await api.post("/settings/ai-connection/test", apiKey ? { api_key: apiKey, provider, chat_model: model } : { secret_reference: "env:OPENAI_API_KEY", provider, chat_model: model });
+      const result = await api.post("/settings/ai-connection/test", { secret_reference: "env:OPENAI_API_KEY", provider, chat_model: model });
       if (result.data.ok) {
         setMessage(result.data.message);
       } else {
@@ -1658,7 +1656,6 @@ function AiSettings() {
             <Grid size={{ xs: 12, md: 6 }}><Field label="PROVIDER"><TextField select value={provider} onChange={(event) => setProvider(event.target.value)} fullWidth sx={fieldSx}><MenuItem value="openai">OpenAI</MenuItem><MenuItem value="nvidia">NVIDIA NIM</MenuItem></TextField></Field></Grid>
             <Grid size={{ xs: 12, md: 6 }}><Field label="CHAT MODEL"><TextField select value={model} onChange={(event) => setModel(event.target.value)} fullWidth sx={fieldSx}><MenuItem value="gpt-4o-mini">gpt-4o-mini</MenuItem><MenuItem value="gpt-4o">gpt-4o</MenuItem><MenuItem value="meta/llama-3.1-70b-instruct">NVIDIA · Llama 3.1 70B</MenuItem><MenuItem value="meta/llama-3.2-3b-instruct">NVIDIA · Llama 3.2 3B</MenuItem></TextField></Field></Grid>
             <Grid size={{ xs: 12, md: 6 }}><Field label="EMBEDDING MODEL"><TextField value="text-embedding-3-large" fullWidth slotProps={{ input: { readOnly: true } }} sx={fieldSx} /></Field></Grid>
-            <Grid size={{ xs: 12, md: 6 }}><Field label="OPENAI API KEY"><TextField type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="new-password" placeholder="연결 테스트용 API 키 입력" fullWidth helperText="저장되지 않으며 연결 테스트에만 사용됩니다." sx={fieldSx} /></Field></Grid>
             <Grid size={{ xs: 12, md: 6 }}><Field label="AI 기능 상태"><TextField select value={enabled} onChange={(event) => setEnabled(event.target.value)} fullWidth sx={fieldSx}><MenuItem value="false">비활성</MenuItem><MenuItem value="true">활성</MenuItem></TextField></Field></Grid>
           </Grid>
           <Stack direction="row" spacing={1.5} sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${colors.border}` }}><Button type="button" variant="outlined" onClick={() => void testConnection()} disabled={testing} startIcon={<CableOutlined />} sx={{ borderColor: colors.border, color: colors.primary }}>{testing ? "테스트 중" : "연결 테스트"}</Button><Button type="submit" variant="contained" startIcon={<SaveOutlined />} sx={{ bgcolor: colors.primary }}>저장</Button></Stack>
