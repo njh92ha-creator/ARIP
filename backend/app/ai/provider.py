@@ -55,10 +55,11 @@ class DisabledProvider:
 class OpenAIAnalysisProvider:
     model: str
     api_key_env: str = "OPENAI_API_KEY"
+    enabled: bool = True
 
     def analyze(self, event_facts: dict[str, Any], references: list[dict[str, Any]]) -> dict[str, Any]:
-        if not settings.enable_external_ai:
-            raise AiUnavailableError("ARIP_ENABLE_EXTERNAL_AI is false")
+        if not self.enabled:
+            raise AiUnavailableError("external AI is disabled")
         api_key = os.getenv(self.api_key_env)
         if not api_key:
             raise AiUnavailableError(f"{self.api_key_env} is not configured")
@@ -109,9 +110,13 @@ class OpenAIAnalysisProvider:
         return parsed
 
 
-def provider_from_settings() -> AnalysisProvider:
-    if not settings.enable_external_ai:
+def provider_from_settings(
+    *, enabled: bool | None = None, chat_model: str | None = None
+) -> AnalysisProvider:
+    enabled = settings.enable_external_ai if enabled is None else enabled
+    model = chat_model or settings.chat_model
+    if not enabled:
         return DisabledProvider()
-    if not settings.chat_model:
+    if not model:
         return DisabledProvider("chat model is not configured")
-    return OpenAIAnalysisProvider(model=settings.chat_model)
+    return OpenAIAnalysisProvider(model=model, enabled=enabled)

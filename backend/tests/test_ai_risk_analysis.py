@@ -196,6 +196,30 @@ class AiOrchestrationTest(unittest.TestCase):
         self.assertEqual(result["events"], 1)
         self.assertEqual(result["risks"], 1)
 
+    def test_generic_manual_review_is_reassessed_when_ai_is_enabled_later(self) -> None:
+        company_id = uuid4()
+        line = JournalLine(
+            company_id=company_id, source_row=1, document_number="JE-4",
+            posting_date=date(2025, 6, 4), account_code="111000",
+            account_name="현금", local_amount=Decimal("100000000"),
+            debit_credit_indicator="D", fiscal_year=2025, fiscal_period=6,
+            line_text="법인 설립 증자 대금 수령",
+        )
+        repo = FakeRepository()
+        first = process_journals(repo, [line], actor="test", external_ai_enabled=False)
+        original = next(iter(repo.risks.values()))
+        provider = FakeAnalysisProvider()
+
+        second = process_journals(repo, [line], actor="test", analysis_provider=provider)
+
+        self.assertEqual(first["risks"], 1)
+        self.assertEqual(second["events"], 0)
+        self.assertEqual(second["risks"], 0)
+        self.assertEqual(provider.calls, 1)
+        self.assertEqual(len(repo.risks), 1)
+        self.assertIs(next(iter(repo.risks.values())), original)
+        self.assertEqual(original.route.value, "RAG_LLM")
+
     def test_unexpected_ai_failure_falls_back_without_stopping_import(self) -> None:
         company_id = uuid4()
         line = JournalLine(

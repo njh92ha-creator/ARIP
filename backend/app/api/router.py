@@ -93,6 +93,15 @@ def _save_runtime_settings() -> None:
         pass
 
 
+def _ai_runtime_options() -> dict[str, Any]:
+    """Return non-secret AI execution controls saved from the Settings screen."""
+    connection = runtime_settings.get("aiConnection", {})
+    return {
+        "external_ai_enabled": bool(connection.get("enabled")),
+        "ai_model": str(connection.get("chatModel") or "gpt-4o-mini"),
+    }
+
+
 _load_runtime_settings()
 knowledge_candidates: dict[str, dict[str, Any]] = repository.get_runtime_setting(
     "knowledge-candidates", {}
@@ -151,6 +160,7 @@ def _process_gl_job(
             lines,
             actor="system",
             knowledge_candidates=knowledge_candidates,
+            **_ai_runtime_options(),
         )
         job.update(status="COMPLETED", stage="COMPLETE", result=result)
     except Exception as exc:
@@ -264,7 +274,18 @@ def upsert_materiality(
 
 @router.get("/settings/runtime")
 def get_runtime_settings() -> Any:
-    return runtime_settings
+    response = dict(runtime_settings)
+    connection = dict(response.get("aiConnection", {}))
+    secret_reference = connection.get("secretReference")
+    secret_name = (
+        secret_reference.removeprefix("env:")
+        if isinstance(secret_reference, str) and secret_reference.startswith("env:")
+        else "OPENAI_API_KEY"
+    )
+    connection["secretReadable"] = bool(os.getenv(secret_name))
+    connection["ready"] = bool(connection.get("enabled")) and connection["secretReadable"]
+    response["aiConnection"] = connection
+    return response
 
 
 @router.patch("/settings/ai-connection")
@@ -286,7 +307,7 @@ def set_ai_connection(
         ),
     }
     _save_runtime_settings()
-    return runtime_settings["aiConnection"]
+    return get_runtime_settings()["aiConnection"]
 
 
 @router.post("/settings/ai-connection/test")
@@ -664,6 +685,7 @@ def analyze_closing_set(
             closing_analysis_set_id,
             actor=user.user_id,
             knowledge_candidates=knowledge_candidates,
+            **_ai_runtime_options(),
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -697,6 +719,7 @@ def import_general_ledger(
             lines,
             actor="system",
             knowledge_candidates=knowledge_candidates,
+            **_ai_runtime_options(),
         )
         return {
             "status": "COMPLETED",

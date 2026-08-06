@@ -1603,6 +1603,12 @@ function AiSettings() {
   const runtime = useQuery({ queryKey: ["runtime-settings"], queryFn: async () => (await api.get("/settings/runtime")).data });
   const connection = runtime.data?.aiConnection;
 
+  useEffect(() => {
+    if (!connection) return;
+    if (connection.chatModel) setModel(String(connection.chatModel));
+    setEnabled(connection.enabled ? "true" : "false");
+  }, [connection?.chatModel, connection?.enabled]);
+
   const save = async () => {
     setMessage("");
     setError("");

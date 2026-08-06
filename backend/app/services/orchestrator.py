@@ -22,6 +22,7 @@ def process_journals(
     knowledge_candidates: dict[str, dict[str, Any]] | None = None,
     analysis_provider: AnalysisProvider | None = None,
     external_ai_enabled: bool | None = None,
+    ai_model: str | None = None,
     cross_findings: list[Any] | None = None,
 ) -> dict[str, int]:
     for line in lines:
@@ -55,34 +56,46 @@ def process_journals(
             if prior_event
             else None
         )
-        if (
+        same_pattern = (
             prior_event
             and prior_risk
             and set(prior_event.journal_line_ids) == set(candidate.journal_line_ids)
-        ):
-            reused_events += 1
-            continue
-        repo.save(candidate)
-        created_events += 1
+        )
         ai_enabled = (
             analysis_provider is not None
             or settings.enable_external_ai
             if external_ai_enabled is None
             else external_ai_enabled
         )
+        # A prior generic manual-review record is deliberately reconsidered when
+        # AI is later enabled.  Other completed patterns remain idempotent.
+        reassess_with_ai = bool(
+            same_pattern
+            and ai_enabled
+            and prior_risk.route.value == "MANUAL_REVIEW"
+        )
+        if same_pattern and not reassess_with_ai:
+            reused_events += 1
+            continue
+        event = prior_event if reassess_with_ai else candidate
+        if not reassess_with_ai:
+            repo.save(event)
+            created_events += 1
         risk = analyze_event(
-            candidate,
+            event,
             materiality,
-            prior_risk=prior_risk,
+            prior_risk=None if reassess_with_ai else prior_risk,
             external_ai_available=ai_enabled,
         )
         if risk is None and ai_enabled:
             try:
-                provider = analysis_provider or provider_from_settings()
-                references = approved_reference_context(
-                    candidate.company_id, knowledge_candidates
+                provider = analysis_provider or provider_from_settings(
+                    enabled=ai_enabled, chat_model=ai_model
                 )
-                facts = build_event_facts(candidate, cluster)
+                references = approved_reference_context(
+                    event.company_id, knowledge_candidates
+                )
+                facts = build_event_facts(event, cluster)
                 linked_findings = [
                     finding
                     for finding in (cross_findings or [])
@@ -102,16 +115,30 @@ def process_journals(
                         for finding in linked_findings
                     ]
                 analysis = provider.analyze(facts, references)
-                risk = risk_from_ai_analysis(candidate, materiality, analysis, references)
+                generated_risk = risk_from_ai_analysis(event, materiality, analysis, references)
+                if reassess_with_ai and prior_risk and generated_risk:
+                    # Keep the existing risk identity and history while replacing
+                    # its generic fallback contents with the AI assessment.
+                    prior_risk.title = generated_risk.title
+                    prior_risk.statement = generated_risk.statement
+                    prior_risk.level = generated_risk.level
+                    prior_risk.score = generated_risk.score
+                    prior_risk.route = generated_risk.route
+                    prior_risk.package = generated_risk.package
+                    prior_risk.materiality_level = generated_risk.materiality_level
+                    prior_risk.row_version += 1
+                    risk = prior_risk
+                else:
+                    risk = generated_risk
             except Exception:
                 # AI is an analysis enhancement, never an import dependency.  This
                 # boundary also covers SDK/network/provider failures; the
                 # deterministic review route preserves human review without treating
                 # an unavailable AI response as evidence.
                 risk = analyze_event(
-                    candidate,
+                    event,
                     materiality,
-                    prior_risk=prior_risk,
+                    prior_risk=None if reassess_with_ai else prior_risk,
                     external_ai_available=False,
                 )
         if risk:
@@ -120,7 +147,7 @@ def process_journals(
                 for finding in (cross_findings or [])
                 if set(finding.journal_line_ids).intersection(candidate.journal_line_ids)
             ]
-            risk.closing_analysis_set_id = candidate.closing_analysis_set_id
+            risk.closing_analysis_set_id = event.closing_analysis_set_id
             risk.cross_finding_ids = linked_finding_ids
             risk.package.cross_finding_ids = linked_finding_ids
             repo.save(risk)
@@ -142,11 +169,12 @@ def process_journals(
                     resource_type="Risk",
                     resource_id=str(risk.id),
                     actor=actor,
-                    company_id=candidate.company_id,
+                    company_id=event.company_id,
                     reason=risk.route.value,
                 )
             )
-            created_risks += 1
+            if not reassess_with_ai:
+                created_risks += 1
     return {
         "journalLines": len(lines),
         "events": created_events,

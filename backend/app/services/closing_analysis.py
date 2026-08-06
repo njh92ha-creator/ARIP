@@ -388,6 +388,8 @@ def analyze_closing_analysis_set(
     settlement_balances: list[SettlementBalance] | None = None,
     analysis_provider: Any | None = None,
     knowledge_candidates: dict[str, dict[str, Any]] | None = None,
+    external_ai_enabled: bool | None = None,
+    ai_model: str | None = None,
 ) -> dict[str, Any]:
     closing_set = repo.closing_analysis_sets.get(closing_analysis_set_id)
     if closing_set is None:
@@ -411,7 +413,8 @@ def analyze_closing_analysis_set(
         actor=actor,
         knowledge_candidates=knowledge_candidates,
         analysis_provider=analysis_provider,
-        external_ai_enabled=None,
+        external_ai_enabled=external_ai_enabled,
+        ai_model=ai_model,
         cross_findings=findings,
     )
     for event in repo.events.values():
