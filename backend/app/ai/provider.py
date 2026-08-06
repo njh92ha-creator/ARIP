@@ -127,11 +127,15 @@ class NvidiaAnalysisProvider:
             raise AiUnavailableError(f"{self.api_key_env} is not configured")
         from openai import OpenAI
 
-        client = OpenAI(base_url=self.base_url, api_key=api_key, max_retries=0)
+        # NIM prototype endpoints can queue.  Keep an individual event bounded so
+        # one slow model response cannot exhaust Vercel's function duration.
+        client = OpenAI(
+            base_url=self.base_url, api_key=api_key, max_retries=0, timeout=25.0
+        )
         completion = client.chat.completions.create(
             model=self.model,
             temperature=0,
-            max_tokens=1600,
+            max_tokens=600,
             messages=[
                 {"role": "system", "content": "You are an audit-risk analysis assistant. Do not conclude that an accounting error exists. Return only valid JSON matching this schema: " + json.dumps(RISK_ANALYSIS_SCHEMA, ensure_ascii=False)},
                 {"role": "user", "content": json.dumps({"eventFacts": event_facts, "approvedReferences": references, "policy": "Use only supplied reference IDs. If none apply, return an empty referenceIds list and explain missing evidence."}, ensure_ascii=False)},
