@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from fastapi.encoders import jsonable_encoder
 
 from app.api.schemas import (
@@ -504,14 +504,18 @@ async def upload_knowledge_documents(
 @router.post("/settings/knowledge-sources/local-standards/reindex")
 def reindex_knowledge_documents(
     company_id: UUID,
+    candidate_ids: list[UUID] | None = Query(None),
     user: CurrentUser = Depends(require_roles(Role.ADMIN)),
 ) -> Any:
     indexed = 0
     failures: list[dict[str, str]] = []
+    requested_ids = {str(value) for value in candidate_ids} if candidate_ids else None
     for candidate in knowledge_candidates.values():
         if candidate.get("companyId") != str(company_id):
             continue
         candidate_id = str(candidate["id"])
+        if requested_ids is not None and candidate_id not in requested_ids:
+            continue
         stored = repository.get_runtime_setting(f"knowledge-document:{candidate_id}")
         if not isinstance(stored, dict) or not isinstance(stored.get("content"), bytes):
             candidate["ragStatus"] = "NOT_INDEXED"
