@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any
 
@@ -15,6 +16,9 @@ from app.services.ai_risk_analysis import (
 from app.services.knowledge_rag import retrieve_reference_context
 from app.services.event_engine import cluster_journals, construct_event
 from app.services.risk_engine import analyze_event
+
+
+logger = logging.getLogger(__name__)
 
 
 def process_journals(
@@ -94,12 +98,14 @@ def process_journals(
             external_ai_available=ai_enabled,
         )
         if risk is None and ai_enabled:
+            ai_stage = "provider_initialization"
             try:
                 provider = analysis_provider or provider_from_settings(
                     enabled=ai_enabled, chat_model=ai_model,
                     provider=ai_provider, api_key_env=ai_key_env,
                 )
                 facts = build_event_facts(event, cluster)
+                ai_stage = "build_event_facts"
                 linked_findings = [
                     finding
                     for finding in (cross_findings or [])
@@ -126,6 +132,7 @@ def process_journals(
                     # without requiring a live vector store.
                     retrieved = []
                 else:
+                    ai_stage = "retrieve_reference_context"
                     key_env = ai_key_env or "OPENAI_API_KEY"
                     api_key = os.getenv(key_env)
                     if not api_key:
@@ -138,7 +145,9 @@ def process_journals(
                         embedding_model=embedding_model,
                     )
                 references = rag_reference_context(retrieved)
+                ai_stage = "llm_analysis"
                 analysis = provider.analyze(facts, references)
+                ai_stage = "risk_from_ai_analysis"
                 generated_risk = risk_from_ai_analysis(event, materiality, analysis, references)
                 if reassess_with_ai and prior_risk and generated_risk:
                     # Keep the existing risk identity and history while replacing
@@ -154,7 +163,16 @@ def process_journals(
                     risk = prior_risk
                 else:
                     risk = generated_risk
-            except Exception:
+            except Exception as exc:
+                # Preserve the safe fallback while making an operational failure
+                # diagnosable without writing secrets or source document contents.
+                logger.warning(
+                    "AI RAG analysis fallback: stage=%s event_id=%s error_type=%s error=%s",
+                    ai_stage,
+                    event.id,
+                    type(exc).__name__,
+                    str(exc),
+                )
                 # AI is an analysis enhancement, never an import dependency.  This
                 # boundary also covers SDK/network/provider failures; the
                 # deterministic review route preserves human review without treating
