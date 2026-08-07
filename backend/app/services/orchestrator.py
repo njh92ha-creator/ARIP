@@ -74,7 +74,7 @@ def process_journals(
         reassess_with_ai = bool(
             same_pattern
             and ai_enabled
-            and prior_risk.route.value == "MANUAL_REVIEW"
+            and prior_risk.route.value in {"MANUAL_REVIEW", "RAG_LLM"}
         )
         if same_pattern and not reassess_with_ai:
             reused_events += 1

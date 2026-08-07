@@ -159,7 +159,7 @@ class BrokenAnalysisProvider:
 
 
 class AiOrchestrationTest(unittest.TestCase):
-    def test_new_unclassified_event_uses_ai_once_and_reuses_exact_pattern(self) -> None:
+    def test_existing_ai_risk_is_refreshed_when_analysis_is_rerun(self) -> None:
         company_id = uuid4()
         line = JournalLine(
             company_id=company_id, source_row=1, document_number="JE-1",
@@ -175,8 +175,8 @@ class AiOrchestrationTest(unittest.TestCase):
         second = process_journals(repo, [line], actor="test", analysis_provider=provider)
 
         self.assertEqual(first["risks"], 1)
-        self.assertEqual(second["reusedPatterns"], 1)
-        self.assertEqual(provider.calls, 1)
+        self.assertEqual(second["reusedPatterns"], 0)
+        self.assertEqual(provider.calls, 2)
 
     def test_ai_unavailable_falls_back_without_stopping_import(self) -> None:
         company_id = uuid4()
