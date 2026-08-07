@@ -1758,6 +1758,23 @@ function KnowledgeSettings({ company }: { company?: Company }) {
       );
     }
   };
+  const reindexDocuments = async () => {
+    setError("");
+    setMessage("");
+    try {
+      const response = await api.post(
+        "/settings/knowledge-sources/local-standards/reindex",
+        null,
+        { params: { company_id: company.id } },
+      );
+      const failed = response.data.failures?.length ?? 0;
+      setMessage(`RAG 인덱스 생성 완료: ${response.data.indexed}건${failed ? `, 실패 ${failed}건` : ""}`);
+      await candidates.refetch();
+    } catch (caught) {
+      const detail = (caught as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+      setError(detail ?? "RAG 인덱스 생성에 실패했습니다.");
+    }
+  };
   return (
     <>
       <Card sx={cardSx}>
@@ -1856,6 +1873,9 @@ function KnowledgeSettings({ company }: { company?: Company }) {
               >
                 업로드
                 {selectedFiles?.length ? ` (${selectedFiles.length})` : ""}
+              </Button>
+              <Button variant="outlined" onClick={reindexDocuments} disabled={!candidateItems.length}>
+                RAG 인덱스 생성
               </Button>
             </Stack>
           </Box>
@@ -1976,6 +1996,8 @@ type KnowledgeDocument = {
   relativePath: string;
   status: string;
   ragEligible: boolean;
+  ragStatus?: string;
+  chunkCount?: number;
 };
 
 function KnowledgeTable({ documents }: { documents: KnowledgeDocument[] }) {
@@ -1993,7 +2015,7 @@ function KnowledgeTable({ documents }: { documents: KnowledgeDocument[] }) {
         <Table size="small">
           <TableHead>
             <TableRow>
-              {["문서명", "유형", "상태", "RAG 사용"].map((item) => (
+              {["문서명", "유형", "상태", "RAG 인덱스"].map((item) => (
                 <TableCell key={item} align={item === "문서명" || item === "유형" ? "left" : "center"}>
                   {item}
                 </TableCell>
@@ -2024,10 +2046,10 @@ function KnowledgeTable({ documents }: { documents: KnowledgeDocument[] }) {
                       <StatusChip label={approved ? "승인됨" : "승인 대기"} tone={approved ? "success" : "warning"} />
                     </TableCell>
                     <TableCell align="center">
-                      {document.ragEligible ? (
-                        <CheckCircle sx={{ color: colors.success }} />
+                      {document.ragStatus === "INDEXED" ? (
+                        <Stack alignItems="center" spacing={.25}><CheckCircle sx={{ color: colors.success }} /><Typography variant="caption">청크 {document.chunkCount ?? 0}</Typography></Stack>
                       ) : (
-                        <PendingOutlined sx={{ color: "#C2C6D5" }} />
+                        <Stack alignItems="center" spacing={.25}><PendingOutlined sx={{ color: "#C2C6D5" }} /><Typography variant="caption">{document.ragStatus === "FAILED" ? "실패" : "미생성"}</Typography></Stack>
                       )}
                     </TableCell>
                   </TableRow>

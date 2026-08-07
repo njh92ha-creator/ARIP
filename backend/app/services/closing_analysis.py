@@ -396,6 +396,7 @@ def analyze_closing_analysis_set(
     ai_model: str | None = None,
     ai_provider: str = "openai",
     ai_key_env: str | None = None,
+    embedding_model: str | None = None,
 ) -> dict[str, Any]:
     closing_set = repo.closing_analysis_sets.get(closing_analysis_set_id)
     if closing_set is None:
@@ -423,6 +424,7 @@ def analyze_closing_analysis_set(
         ai_model=ai_model,
         ai_provider=ai_provider,
         ai_key_env=ai_key_env,
+        embedding_model=embedding_model,
         cross_findings=findings,
     )
     for event in repo.events.values():

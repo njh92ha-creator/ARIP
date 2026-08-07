@@ -74,6 +74,20 @@ def approved_reference_context(
     return approved
 
 
+def rag_reference_context(retrieved_chunks: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Keep the evidence payload explicit and small before it reaches the LLM."""
+    return [
+        {
+            "id": str(chunk["id"]),
+            "title": str(chunk["title"]),
+            "type": "RAG_CHUNK",
+            "locator": str(chunk.get("locator", "본문")),
+            "excerpt": str(chunk["excerpt"]),
+        }
+        for chunk in retrieved_chunks
+    ]
+
+
 def _materiality(event: AccountingEvent, profile: MaterialityProfile | None) -> tuple[str, int]:
     if not profile:
         return "UNCONFIGURED", 0
@@ -113,7 +127,12 @@ def risk_from_ai_analysis(
     score = max(1, min(100, base_score + materiality_points))
     level = RiskLevel.HIGH if score >= 75 else RiskLevel.MEDIUM if score >= 50 else RiskLevel.LOW
     package_references = [
-        {"type": item["type"], "code": item["title"], "status": "APPROVED"}
+        {
+            "type": item["type"],
+            "code": f"{item['title']} · {item.get('locator', '본문')}",
+            "status": "APPROVED",
+            "excerpt": item.get("excerpt", ""),
+        }
         for item in referenced
     ]
     package = RiskPackage(

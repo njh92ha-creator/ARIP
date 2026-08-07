@@ -41,6 +41,7 @@ from app.core.database import check_database
 from app.services.import_pipeline import normalize_general_ledger, normalize_settlement
 from app.services.mapping import propose_mapping
 from app.services.orchestrator import process_journals
+from app.services.knowledge_rag import KnowledgeIndexError, index_document
 from app.services.closing_analysis import (
     analyze_closing_analysis_set,
     attach_general_ledger,
@@ -102,6 +103,7 @@ def _ai_runtime_options() -> dict[str, Any]:
         "ai_model": str(connection.get("chatModel") or "gpt-4o-mini"),
         "ai_provider": str(connection.get("provider") or "openai"),
         "ai_key_env": secret_reference.removeprefix("env:") if secret_reference.startswith("env:") else None,
+        "embedding_model": str(connection.get("embeddingModel") or "text-embedding-3-large"),
     }
 
 
@@ -114,6 +116,21 @@ jobs: dict[str, dict[str, Any]] = {}
 
 def _save_knowledge_candidates() -> None:
     repository.save_runtime_setting("knowledge-candidates", knowledge_candidates)
+
+
+def _index_knowledge_candidate(
+    *, candidate_id: str, company_id: UUID, filename: str, content: bytes, content_hash: str,
+) -> dict[str, Any]:
+    options = _ai_runtime_options()
+    key_env = options["ai_key_env"] or "OPENAI_API_KEY"
+    api_key = os.getenv(key_env)
+    if not options["external_ai_enabled"] or not api_key:
+        raise KnowledgeIndexError("AI 연결이 활성화되어 있고 서버 API 키가 설정되어 있어야 RAG 인덱스를 생성할 수 있습니다.")
+    return index_document(
+        candidate_id=candidate_id, company_id=company_id, filename=filename,
+        content=content, content_hash=content_hash, provider=options["ai_provider"],
+        api_key=api_key, embedding_model=options["embedding_model"],
+    )
 
 
 def encode(value: Any) -> Any:
@@ -455,10 +472,25 @@ async def upload_knowledge_documents(
         content = await upload.read()
         digest = hashlib.sha256(content).hexdigest()
         candidate_id = str(uuid4())
+        try:
+            indexed = _index_knowledge_candidate(
+                candidate_id=candidate_id, company_id=company_id, filename=name,
+                content=content, content_hash=digest,
+            )
+        except KnowledgeIndexError as exc:
+            options = _ai_runtime_options()
+            key_env = options["ai_key_env"] or "OPENAI_API_KEY"
+            # Keep the original file safely available for a later explicit
+            # reindex when an administrator has not configured AI yet.  Parsing
+            # and embedding errors with an active AI connection remain blocking.
+            if options["external_ai_enabled"] and os.getenv(key_env):
+                raise HTTPException(422, str(exc)) from exc
+            indexed = {"ragStatus": "NOT_INDEXED", "ragError": str(exc), "chunkCount": 0, "pageCount": 0}
         knowledge_candidates[candidate_id] = {
             "id": candidate_id, "companyId": str(company_id),
             "relativePath": name, "contentHash": digest,
             "status": "APPROVED", "ragEligible": True,
+            "ragStatus": indexed.pop("ragStatus", "INDEXED"), **indexed,
         }
         repository.save_runtime_setting(
             f"knowledge-document:{candidate_id}",
@@ -467,6 +499,38 @@ async def upload_knowledge_documents(
         scanned += 1
     _save_knowledge_candidates()
     return {"uploaded": scanned, "status": "COMPLETED"}
+
+
+@router.post("/settings/knowledge-sources/local-standards/reindex")
+def reindex_knowledge_documents(
+    company_id: UUID,
+    user: CurrentUser = Depends(require_roles(Role.ADMIN)),
+) -> Any:
+    indexed = 0
+    failures: list[dict[str, str]] = []
+    for candidate in knowledge_candidates.values():
+        if candidate.get("companyId") != str(company_id):
+            continue
+        candidate_id = str(candidate["id"])
+        stored = repository.get_runtime_setting(f"knowledge-document:{candidate_id}")
+        if not isinstance(stored, dict) or not isinstance(stored.get("content"), bytes):
+            candidate["ragStatus"] = "NOT_INDEXED"
+            failures.append({"name": str(candidate.get("relativePath", candidate_id)), "reason": "원본 파일이 서버에 없습니다."})
+            continue
+        try:
+            result = _index_knowledge_candidate(
+                candidate_id=candidate_id, company_id=company_id,
+                filename=str(stored.get("filename") or candidate.get("relativePath") or "document"),
+                content=stored["content"], content_hash=str(stored.get("contentHash") or candidate.get("contentHash") or ""),
+            )
+            candidate.update({"ragStatus": "INDEXED", **result})
+            indexed += 1
+        except KnowledgeIndexError as exc:
+            candidate["ragStatus"] = "FAILED"
+            candidate["ragError"] = str(exc)
+            failures.append({"name": str(candidate.get("relativePath", candidate_id)), "reason": str(exc)})
+    _save_knowledge_candidates()
+    return {"indexed": indexed, "failures": failures, "status": "COMPLETED"}
 
 
 @router.get("/settings/knowledge-sources/local-standards/candidates")

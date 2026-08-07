@@ -81,11 +81,12 @@ class OpenAIAnalysisProvider:
                     "content": json.dumps(
                         {
                             "eventFacts": event_facts,
-                            "approvedReferences": references,
+                            "retrievedReferenceChunks": references,
                             "analysisPolicy": {
                                 "doNotConcludeError": True,
                                 "citeOnlyApprovedReferenceIds": True,
-                                "noReferenceBehavior": "Return an empty referenceIds list and identify a review-only evidence-enrichment candidate.",
+                                "ragOnly": "Use the supplied excerpts as the only accounting-standard authority. Do not cite or apply IFRS knowledge that is absent from the excerpts.",
+                                "noReferenceBehavior": "When no supplied excerpt directly supports an issue, return empty issueTypes and referenceIds; do not create a standards-based issue.",
                             },
                         },
                         ensure_ascii=False,
@@ -138,7 +139,7 @@ class NvidiaAnalysisProvider:
             max_tokens=600,
             messages=[
                 {"role": "system", "content": """당신은 한국어 회계감사 보조자입니다. 반드시 제공된 전표의 적요, 계정명·코드, 차변/대변, 금액 및 교차분석 사실을 서로 대조해 질적 검토 의견을 작성하십시오. 특히 적요의 거래 성격(예: 장기차입금)과 분개 계정의 분류(예: 단기차입금)가 상충하면, 두 사실을 명시하고 분류 적정성 검토가 필요하다고 설명하십시오. 오류나 재무제표 왜곡을 단정하지 말고, 결론을 위해 필요한 계약 만기·상환청구권·차환약정 등의 구체적 증빙을 제시하십시오. 원장-정산표 대사 차이는 실제로 제공된 교차분석 사실이 있을 때만 언급하십시오. riskSummary는 반드시 한국어로 '관찰된 사실 / 검토 의견 / 판단 한계'를 포함한 3~5문장으로 작성하십시오. 일반적·추상적 경고 문구를 쓰지 마십시오. Return only valid JSON matching this schema: """ + json.dumps(RISK_ANALYSIS_SCHEMA, ensure_ascii=False)},
-                {"role": "user", "content": json.dumps({"eventFacts": event_facts, "approvedReferences": references, "policy": "Use only supplied reference IDs. If none apply, return an empty referenceIds list and explain missing evidence."}, ensure_ascii=False)},
+                {"role": "user", "content": json.dumps({"eventFacts": event_facts, "retrievedReferenceChunks": references, "policy": "Use the supplied excerpts as the only accounting-standard authority. Cite only supplied chunk IDs and locate the opinion in the cited excerpt. If none directly applies, return empty issueTypes and referenceIds; do not infer a standards-based issue from model knowledge."}, ensure_ascii=False)},
             ],
         )
         content = completion.choices[0].message.content or ""

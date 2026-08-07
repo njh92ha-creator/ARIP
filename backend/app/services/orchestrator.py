@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import json
+import os
 from typing import Any
 
 from app.ai.provider import AnalysisProvider, provider_from_settings
 from app.core.config import settings
 from app.domain.models import AuditLogEntry, RiskMemoryEntry
 from app.services.ai_risk_analysis import (
-    approved_reference_context,
     build_event_facts,
+    rag_reference_context,
     risk_from_ai_analysis,
 )
+from app.services.knowledge_rag import retrieve_reference_context
 from app.services.event_engine import cluster_journals, construct_event
 from app.services.risk_engine import analyze_event
 
@@ -25,6 +28,7 @@ def process_journals(
     ai_model: str | None = None,
     ai_provider: str = "openai",
     ai_key_env: str | None = None,
+    embedding_model: str | None = None,
     cross_findings: list[Any] | None = None,
 ) -> dict[str, int]:
     for line in lines:
@@ -95,9 +99,6 @@ def process_journals(
                     enabled=ai_enabled, chat_model=ai_model,
                     provider=ai_provider, api_key_env=ai_key_env,
                 )
-                references = approved_reference_context(
-                    event.company_id, knowledge_candidates
-                )
                 facts = build_event_facts(event, cluster)
                 linked_findings = [
                     finding
@@ -117,6 +118,26 @@ def process_journals(
                         }
                         for finding in linked_findings
                     ]
+                # Retrieval is deliberately performed per accounting event.  The
+                # LLM receives only these selected excerpts, never every uploaded
+                # standard or its file bytes.
+                if analysis_provider is not None:
+                    # Unit/integration callers can supply a deterministic provider
+                    # without requiring a live vector store.
+                    retrieved = []
+                else:
+                    key_env = ai_key_env or "OPENAI_API_KEY"
+                    api_key = os.getenv(key_env)
+                    if not api_key:
+                        raise RuntimeError(f"{key_env} is not configured")
+                    retrieved = retrieve_reference_context(
+                        company_id=event.company_id,
+                        query=json.dumps(facts, ensure_ascii=False),
+                        provider=ai_provider,
+                        api_key=api_key,
+                        embedding_model=embedding_model,
+                    )
+                references = rag_reference_context(retrieved)
                 analysis = provider.analyze(facts, references)
                 generated_risk = risk_from_ai_analysis(event, materiality, analysis, references)
                 if reassess_with_ai and prior_risk and generated_risk:
