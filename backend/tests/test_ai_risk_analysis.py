@@ -101,7 +101,7 @@ class AiRiskFactsTest(unittest.TestCase):
         assert risk is not None
         self.assertEqual(risk.route.value, "RAG_LLM")
         self.assertEqual(risk.package.evidence_status, "EVIDENCE_ENRICHMENT_REQUIRED")
-        self.assertIn("근거보강 필요", risk.statement)
+        self.assertEqual(risk.statement, analysis["riskSummary"])
         self.assertIn("차입 만기일", risk.package.missing_facts)
 
 

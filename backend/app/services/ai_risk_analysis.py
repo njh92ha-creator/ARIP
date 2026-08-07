@@ -127,7 +127,7 @@ def risk_from_ai_analysis(
         evidence_status=evidence_status,
     )
     title = f"검토 필요: {issue_types[0]}"
-    statement = summary if referenced else f"근거보강 필요 — {summary}"
+    statement = summary
     return Risk(
         company_id=event.company_id,
         event_id=event.id,

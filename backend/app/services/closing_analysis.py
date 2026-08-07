@@ -298,21 +298,25 @@ def _enrich_or_create_cross_risk(
             cross_finding_ids=[finding.id],
         )
     else:
-        risk.title = "Borrowing classification and liquidity review"
-        risk.statement = finding.statement
-        risk.level = RiskLevel.HIGH
-        risk.score = max(risk.score, 75)
+        # Keep an AI-generated, transaction-specific review opinion visible;
+        # the cross finding is linked as evidence instead of overwriting it.
+        if risk.route != AnalysisRoute.RAG_LLM:
+            risk.title = "Borrowing classification and liquidity review"
+            risk.statement = finding.statement
+            risk.level = RiskLevel.HIGH
+            risk.score = max(risk.score, 75)
         risk.closing_analysis_set_id = finding.closing_analysis_set_id
         risk.cross_finding_ids = sorted(set([*risk.cross_finding_ids, finding.id]), key=str)
         risk.package.cross_finding_ids = sorted(
             set([*risk.package.cross_finding_ids, finding.id]), key=str
         )
-        risk.package.expected_questions = list(
-            dict.fromkeys([*risk.package.expected_questions, *questions])
-        )
-        risk.package.evidence_checklist = list(
-            dict.fromkeys([*risk.package.evidence_checklist, *evidence])
-        )
+        if risk.route != AnalysisRoute.RAG_LLM:
+            risk.package.expected_questions = list(
+                dict.fromkeys([*risk.package.expected_questions, *questions])
+            )
+            risk.package.evidence_checklist = list(
+                dict.fromkeys([*risk.package.evidence_checklist, *evidence])
+            )
     repo.save(risk)
     finding.linked_event_ids = [event.id]
     finding.linked_risk_ids = [risk.id]
