@@ -45,13 +45,13 @@ def extract_document(filename: str, content: bytes) -> list[ExtractedPage]:
         try:
             from pypdf import PdfReader
 
-            reader = PdfReader(io.BytesIO(content))
+            reader = PdfReader(io.BytesIO(content), strict=False)
             pages = [
                 ExtractedPage(index + 1, _clean_text(page.extract_text() or ""))
                 for index, page in enumerate(reader.pages)
             ]
         except Exception as exc:  # encrypted/scanned PDFs need an OCR-capable source
-            raise KnowledgeIndexError("PDF 본문을 추출하지 못했습니다. 텍스트 선택이 가능한 PDF인지 확인해 주세요.") from exc
+            raise KnowledgeIndexError(f"PDF 본문을 추출하지 못했습니다 ({type(exc).__name__}). 텍스트 선택이 가능한 PDF인지 확인해 주세요.") from exc
     elif suffix in {".txt", ".md"}:
         pages = [ExtractedPage(1, _clean_text(content.decode("utf-8", errors="ignore")))]
     elif suffix in {".html", ".htm"}:
