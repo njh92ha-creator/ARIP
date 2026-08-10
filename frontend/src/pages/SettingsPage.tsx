@@ -39,6 +39,7 @@ import {
   CheckCircleOutline,
   CloudUploadOutlined,
   CorporateFareOutlined,
+  DeleteOutline,
   EditOutlined,
   FilterList,
   GavelOutlined,
@@ -62,7 +63,7 @@ import {
   WarningAmberOutlined,
 } from "@mui/icons-material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, Company } from "../api";
+import { api, Company, Risk } from "../api";
 
 const colors = {
   border: "#E5E7EB",
@@ -188,6 +189,7 @@ export function SettingsPage() {
           iconPosition="start"
           label="AI 및 지식베이스"
         />
+        <Tab icon={tab === 3 ? <ShieldOutlined fontSize="small" /> : undefined} iconPosition="start" label="리스크 관리" />
       </Tabs>
 
       {tab === 0 && (
@@ -204,6 +206,7 @@ export function SettingsPage() {
           <KnowledgeSettings company={company} />
         </Stack>
       )}
+      {tab === 3 && <RiskManagementSettings company={company} />}
     </Box>
   );
 }
@@ -214,6 +217,9 @@ function SettingsHeading({ tab }: { tab: number }) {
   }
   if (tab === 1) {
     return <Box sx={{ mb: 2.5 }}><Breadcrumb current="감사 중요성" /><Typography variant="h4" sx={{ mt: 1 }}>감사 중요성 (Audit Materiality)</Typography></Box>
+  }
+  if (tab === 3) {
+    return <Box sx={{ mb: 2.5 }}><Breadcrumb current="리스크 관리" /><Typography variant="h4" sx={{ mt: 1 }}>리스크 관리</Typography><Typography color="text.secondary" variant="body2" sx={{ mt: .75 }}>리스크 분석 결과를 확인하고, 필요 시 DB에서 영구 삭제합니다.</Typography></Box>
   }
   return <Box sx={{ mb: 2.5 }}><Breadcrumb current="AI 및 지식베이스" /><Typography variant="h4" sx={{ mt: 1 }}>AI 및 지식베이스 설정</Typography><Typography color="text.secondary" variant="body2" sx={{ mt: 0.75 }}>리스크 분석 엔진을 위한 AI 엔진 연결 및 감사 지식베이스(RAG) 문서를 관리합니다.</Typography></Box>
 }
@@ -285,6 +291,48 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       {children}
     </Stack>
   );
+}
+
+function RiskManagementSettings({ company }: { company?: Company }) {
+  const queryClient = useQueryClient();
+  const [selectedRisk, setSelectedRisk] = useState<Risk | null>(null);
+  const risks = useQuery({
+    queryKey: ["risk-management", company?.id],
+    enabled: Boolean(company),
+    queryFn: async () => (await api.get<Risk[]>("/settings/risk-management", { params: { company_id: company!.id } })).data,
+  });
+  const deleteRisk = useMutation({
+    mutationFn: async (risk: Risk) => api.delete(`/risks/${risk.id}`, { data: { expected_version: risk.row_version } }),
+    onSuccess: async () => {
+      setSelectedRisk(null);
+      await queryClient.invalidateQueries({ queryKey: ["risk-management"] });
+      await queryClient.invalidateQueries({ queryKey: ["risks"] });
+      await queryClient.invalidateQueries({ queryKey: ["risk-reviews"] });
+    },
+  });
+  const decisionLabel: Record<string, string> = { CHECK: "Check", PENDING: "Pending", PASS: "Pass" };
+
+  return <>
+    <Card sx={cardSx}>
+      <Box sx={{ ...cardHeaderSx, bgcolor: "#FAFBFC" }}><SectionTitle icon={<ShieldOutlined sx={{ color: colors.secondary }} />}>리스크 분석 결과 관리</SectionTitle></Box>
+      <CardContent sx={{ p: 3 }}>
+        <Alert severity="warning" sx={{ mb: 2.5 }}>삭제하면 선택한 리스크 결과와 해당 리스크의 이력·감사 로그가 DB에서 영구 삭제됩니다. 원본 원장·정산표·기준서는 유지됩니다.</Alert>
+        <TableContainer sx={{ border: `1px solid ${colors.border}`, borderRadius: "12px" }}>
+          <Table size="small"><TableHead><TableRow><TableCell>리스크</TableCell><TableCell>검토 분류</TableCell><TableCell>분석 일시</TableCell><TableCell align="right">관리</TableCell></TableRow></TableHead><TableBody>
+            {risks.isLoading ? <TableRow><TableCell colSpan={4} align="center" sx={{ py: 5 }}>불러오는 중...</TableCell></TableRow> :
+              !(risks.data?.length) ? <TableRow><TableCell colSpan={4} align="center" sx={{ py: 5, color: colors.secondary }}>저장된 리스크 분석 결과가 없습니다.</TableCell></TableRow> :
+                risks.data.map((risk) => <TableRow key={risk.id} hover><TableCell><Typography fontWeight={700}>{risk.title}</Typography><Typography variant="caption" color="text.secondary">{risk.id}</Typography></TableCell><TableCell><Chip size="small" label={decisionLabel[risk.review_decision ?? "CHECK"]} /></TableCell><TableCell>{risk.analyzed_at ? new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(risk.analyzed_at)).replace(",", "") : "-"}</TableCell><TableCell align="right"><Button color="error" size="small" startIcon={<DeleteOutline />} onClick={() => setSelectedRisk(risk)}>영구 삭제</Button></TableCell></TableRow>) }
+          </TableBody></Table>
+        </TableContainer>
+        {deleteRisk.isError && <Alert severity="error" sx={{ mt: 2 }}>리스크 삭제에 실패했습니다. 화면을 새로고침한 뒤 다시 시도해 주세요.</Alert>}
+      </CardContent>
+    </Card>
+    <Dialog open={Boolean(selectedRisk)} onClose={() => !deleteRisk.isPending && setSelectedRisk(null)} maxWidth="xs" fullWidth>
+      <DialogTitle>리스크 분석 결과 영구 삭제</DialogTitle>
+      <DialogContent><Typography>“{selectedRisk?.title}” 결과를 삭제하시겠습니까?</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>삭제 후 복구할 수 없습니다. 원본 업로드 자료는 삭제되지 않습니다.</Typography></DialogContent>
+      <DialogActions><Button disabled={deleteRisk.isPending} onClick={() => setSelectedRisk(null)}>취소</Button><Button color="error" variant="contained" disabled={deleteRisk.isPending} onClick={() => selectedRisk && deleteRisk.mutate(selectedRisk)}>{deleteRisk.isPending ? "삭제 중" : "영구 삭제"}</Button></DialogActions>
+    </Dialog>
+  </>;
 }
 
 function CompanySettings({

@@ -55,6 +55,10 @@ class RiskReviewDecision(BaseModel):
     expected_version: int = 1
 
 
+class RiskDelete(BaseModel):
+    expected_version: int = 1
+
+
 class AiConnectionInput(BaseModel):
     provider: str = "openai"
     chat_model: str

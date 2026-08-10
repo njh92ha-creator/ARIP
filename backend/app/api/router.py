@@ -24,6 +24,7 @@ from app.api.schemas import (
     KnowledgeSourceInput,
     MappingApprove,
     MaterialityCreate,
+    RiskDelete,
     RiskReviewDecision,
     RiskTransition,
 )
@@ -916,6 +917,18 @@ def list_risk_reviews(company_id: UUID) -> Any:
     )
 
 
+@router.get("/settings/risk-management")
+def list_risk_management(company_id: UUID) -> Any:
+    """Administrative view including Pass items, used for permanent deletion."""
+    return encode(
+        [
+            _risk_review_payload(risk)
+            for risk in repository.risks.values()
+            if risk.company_id == company_id
+        ]
+    )
+
+
 @router.get("/risks/{risk_id}")
 def get_risk(risk_id: UUID) -> Any:
     risk = _entity(repository.risks, risk_id, "risk")
@@ -1047,6 +1060,22 @@ def set_risk_review_decision(
         )
     )
     return encode(_risk_review_payload(risk))
+
+
+@router.delete("/risks/{risk_id}")
+def delete_risk_analysis(
+    risk_id: UUID,
+    payload: RiskDelete,
+    user: CurrentUser = Depends(require_roles(Role.CLOSING_MANAGER, Role.ADMIN)),
+) -> Any:
+    risk = _entity(repository.risks, risk_id, "risk")
+    if payload.expected_version != risk.row_version:
+        raise HTTPException(409, "risk has been updated; refresh and try again")
+    try:
+        deleted = repository.delete_risk_analysis(risk_id)
+    except KeyError as exc:
+        raise HTTPException(404, "risk not found") from exc
+    return {"deleted": True, "risk_id": str(deleted.id), "company_id": str(deleted.company_id)}
 
 
 @router.get("/journals")

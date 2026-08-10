@@ -356,6 +356,50 @@ class InMemoryRepository:
                 self._db_ready = False
                 self.last_db_error = type(exc).__name__
 
+    def delete_risk_analysis(self, risk_id: UUID) -> Risk:
+        """Permanently delete one derived risk and its risk-specific history."""
+        with self._lock:
+            risk = self.risks.pop(risk_id, None)
+            if risk is None:
+                raise KeyError(risk_id)
+            self.risk_memory.pop(risk_id, None)
+            self.audit_log = [
+                entry
+                for entry in self.audit_log
+                if not (entry.resource_type == "Risk" and entry.resource_id == str(risk_id))
+            ]
+            if not self._db_ready:
+                return risk
+            try:
+                with engine.begin() as connection:
+                    connection.execute(
+                        text("delete from arip_state where collection = 'Risk' and object_id = :risk_id"),
+                        {"risk_id": str(risk_id)},
+                    )
+                    rows = connection.execute(
+                        text("select id, collection, payload from arip_state_log where collection in ('risk_memory', 'audit_log')")
+                    ).all()
+                    log_ids = []
+                    for row in rows:
+                        entry = pickle.loads(bytes(row.payload))
+                        if isinstance(entry, RiskMemoryEntry) and entry.risk_id == risk_id:
+                            log_ids.append(row.id)
+                        elif (
+                            isinstance(entry, AuditLogEntry)
+                            and entry.resource_type == "Risk"
+                            and entry.resource_id == str(risk_id)
+                        ):
+                            log_ids.append(row.id)
+                    if log_ids:
+                        connection.execute(
+                            text("delete from arip_state_log where id = any(:log_ids)"),
+                            {"log_ids": log_ids},
+                        )
+            except Exception as exc:
+                self._db_ready = False
+                self.last_db_error = type(exc).__name__
+            return risk
+
     def remove_company(self, company_id: UUID) -> CompanySettings:
         with self._lock:
             company = self.companies.pop(company_id, None)
