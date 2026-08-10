@@ -72,9 +72,10 @@ class NvidiaTimeoutConfigurationTest(unittest.TestCase):
                 os.environ["NVIDIA_TEST_KEY"] = previous_key
 
         self.assertEqual(captured["timeout"], 120.0)
+        self.assertEqual(len(captured["messages"]), 2)
         self.assertIn("동일 전표번호 안의 행만", captured["messages"][0]["content"])
         self.assertNotIn("개발비·무형자산 거래에서는", captured["messages"][0]["content"])
-        policy = json.loads(captured["messages"][2]["content"])["policy"]
+        policy = json.loads(captured["messages"][1]["content"])["policy"]
         self.assertIn("Identify transaction-specific accounting hypotheses before evaluating citations", policy)
 
     def test_vercel_function_allows_two_minutes(self) -> None:
