@@ -113,6 +113,8 @@ def risk_from_ai_analysis(
 
     requested_ids = {str(item) for item in analysis.get("referenceIds", [])}
     referenced = [item for item in approved_references if item["id"] in requested_ids]
+    if not referenced:
+        return None
     evidence_status = "SUPPORTED" if referenced else "EVIDENCE_ENRICHMENT_REQUIRED"
     missing_facts = [
         str(item).strip() for item in analysis.get("missingFacts", []) if str(item).strip()

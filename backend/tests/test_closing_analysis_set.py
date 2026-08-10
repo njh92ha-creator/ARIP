@@ -27,7 +27,7 @@ class ClosingAnalysisSetTest(unittest.TestCase):
         self.assertEqual(first.fiscal_year, 0)
         self.assertEqual(first.fiscal_period, 0)
 
-    def test_account_description_conflict_creates_audit_risk_from_two_input_set(self) -> None:
+    def test_account_description_conflict_does_not_create_a_fixed_risk(self) -> None:
         """A 100m short-term borrowing posted as a long-term borrowing needs Audit Risk review."""
         repo = InMemoryRepository(persistent=False)
         company = repo.save(CompanySettings("P001", "Test Company", "Manufacturing"))
@@ -106,15 +106,13 @@ class ClosingAnalysisSetTest(unittest.TestCase):
         )
 
         self.assertEqual(result["status"], "COMPLETED")
-        self.assertGreaterEqual(result["crossFindings"], 1)
-        risk = next(iter(repo.risks.values()))
-        self.assertEqual(risk.closing_analysis_set_id, closing_set.id)
-        self.assertIn("classification", risk.title.lower())
-        self.assertIn("liquidity", " ".join(risk.package.expected_questions).lower())
+        self.assertEqual(result["crossFindings"], 0)
+        self.assertEqual(result["risks"], 0)
+        self.assertEqual(len(repo.risks), 0)
 
         analyze_closing_analysis_set(repo, closing_set.id, actor="test")
-        self.assertEqual(len(repo.cross_analysis_findings), 1)
-        self.assertEqual(len(repo.risks), 1)
+        self.assertEqual(len(repo.cross_analysis_findings), 0)
+        self.assertEqual(len(repo.risks), 0)
 
 
 if __name__ == "__main__":

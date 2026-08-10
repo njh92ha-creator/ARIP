@@ -132,10 +132,8 @@ class MappingAndPipelineTest(unittest.TestCase):
                 )
             )
             result = process_journals(repo, lines, actor="test")
-            self.assertEqual(result["risks"], 1)
-            risk = next(iter(repo.risks.values()))
-            self.assertEqual(risk.package.generated_by, "RULE_TEMPLATE")
-            self.assertGreaterEqual(risk.score, 75)
+            self.assertEqual(result["risks"], 0)
+            self.assertEqual(len(repo.risks), 0)
         finally:
             path.unlink(missing_ok=True)
 

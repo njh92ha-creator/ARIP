@@ -206,37 +206,6 @@ def detect_cross_analysis_findings(
         else ReconciliationStatus.NOT_COMPARABLE
     )
 
-    for line in lines:
-        description = _normalize_text(line.header_text, line.line_text)
-        if (
-            _is_short_term_borrowing(line.account_name)
-            and _mentions_long_term_borrowing(description)
-            and line.local_amount >= threshold
-        ):
-            findings.append(
-                CrossAnalysisFinding(
-                    company_id=closing_set.company_id,
-                    closing_analysis_set_id=closing_set.id,
-                    finding_type="ACCOUNT_DESCRIPTION_CLASSIFICATION_CONFLICT",
-                    title="Borrowing classification, liquidity and disclosure review",
-                    statement=(
-                        "The ledger account is short-term borrowing while the journal description "
-                        "indicates a long-term borrowing drawdown. Classification, current/non-current "
-                        "presentation, liquidity and disclosure require review."
-                    ),
-                    severity="HIGH",
-                    account_code=line.account_code,
-                    account_name=line.account_name,
-                    amount=line.local_amount,
-                    journal_line_ids=[line.id],
-                    metadata={
-                        "accountName": line.account_name,
-                        "journalDescription": " ".join(
-                            value for value in (line.header_text, line.line_text) if value
-                        ),
-                    },
-                )
-            )
     for finding in findings:
         repo.save(finding)
     repo.save(closing_set)
@@ -431,11 +400,8 @@ def analyze_closing_analysis_set(
         if any(line_id in {line.id for line in scoped_lines} for line_id in event.journal_line_ids):
             event.closing_analysis_set_id = closing_set.id
             repo.save(event)
-    linked_risks = [
-        _enrich_or_create_cross_risk(repo, finding, actor=actor)
-        for finding in findings
-        if finding.finding_type == "ACCOUNT_DESCRIPTION_CLASSIFICATION_CONFLICT"
-    ]
+    # Cross-analysis findings are passed to the AI as transaction facts above.
+    # They may not create or overwrite a fixed audit risk on their own.
     variance_count = _link_variance_to_risks(repo, closing_set)
     closing_set.status = ClosingAnalysisStatus.COMPLETED
     closing_set.updated_at = utcnow()
@@ -448,6 +414,6 @@ def analyze_closing_analysis_set(
         "crossFindings": len(findings),
         "varianceObservations": variance_count,
         "events": processing["events"],
-        "risks": processing["risks"] + len([risk for risk in linked_risks if risk]),
+        "risks": processing["risks"],
         "reconciliationStatus": closing_set.reconciliation_status.value,
     }

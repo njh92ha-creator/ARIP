@@ -15,7 +15,6 @@ from app.services.ai_risk_analysis import (
 )
 from app.services.knowledge_rag import retrieve_reference_context
 from app.services.event_engine import cluster_journals, construct_event
-from app.services.risk_engine import analyze_event
 
 
 logger = logging.getLogger(__name__)
@@ -77,13 +76,9 @@ def process_journals(
             if external_ai_enabled is None
             else external_ai_enabled
         )
-        # A prior generic manual-review record is deliberately reconsidered when
-        # AI is later enabled.  Other completed patterns remain idempotent.
-        reassess_with_ai = bool(
-            same_pattern
-            and ai_enabled
-            and prior_risk.route.value in {"MANUAL_REVIEW", "RAG_LLM"}
-        )
+        # Reanalysis is driven only by the RAG-supported AI path.  Legacy
+        # deterministic routes cannot create a new risk in this workflow.
+        reassess_with_ai = bool(same_pattern and ai_enabled)
         if same_pattern and not reassess_with_ai:
             reused_events += 1
             continue
@@ -91,13 +86,8 @@ def process_journals(
         if not reassess_with_ai:
             repo.save(event)
             created_events += 1
-        risk = analyze_event(
-            event,
-            materiality,
-            prior_risk=None if reassess_with_ai else prior_risk,
-            external_ai_available=ai_enabled,
-        )
-        if risk is None and ai_enabled:
+        risk = None
+        if ai_enabled:
             ai_stage = "provider_initialization"
             try:
                 provider = analysis_provider or provider_from_settings(
@@ -173,16 +163,10 @@ def process_journals(
                     type(exc).__name__,
                     str(exc),
                 )
-                # AI is an analysis enhancement, never an import dependency.  This
-                # boundary also covers SDK/network/provider failures; the
-                # deterministic review route preserves human review without treating
-                # an unavailable AI response as evidence.
-                risk = analyze_event(
-                    event,
-                    materiality,
-                    prior_risk=None if reassess_with_ai else prior_risk,
-                    external_ai_available=False,
-                )
+                # A failed AI/RAG call is not replaced with a fixed template or
+                # generic review risk.  The import still completes without an
+                # unsupported audit conclusion.
+                risk = None
         if risk:
             linked_finding_ids = [
                 finding.id

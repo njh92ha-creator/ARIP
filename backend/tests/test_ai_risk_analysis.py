@@ -137,19 +137,36 @@ class AiRiskFactsTest(unittest.TestCase):
             "expectedQuestions": ["보고기간 말부터 12개월 이내 상환의무가 있는가?"],
             "evidenceChecklist": ["차입 약정서", "상환 스케줄"],
             "responseGuidance": ["만기와 표시 분류를 검토합니다."],
-            "referenceIds": [],
+            "referenceIds": ["chunk-1"],
             "missingFacts": ["차입 만기일", "약정 위반 여부"],
             "uncertainty": "MEDIUM",
         }
 
-        risk = risk_from_ai_analysis(self.event, None, analysis, [])
+        risk = risk_from_ai_analysis(self.event, None, analysis, [{
+            "id": "chunk-1", "title": "K-IFRS 1001", "type": "RAG_CHUNK",
+            "locator": "p.12", "excerpt": "Current liability classification",
+        }])
 
         self.assertIsNotNone(risk)
         assert risk is not None
         self.assertEqual(risk.route.value, "RAG_LLM")
-        self.assertEqual(risk.package.evidence_status, "EVIDENCE_ENRICHMENT_REQUIRED")
+        self.assertEqual(risk.package.evidence_status, "SUPPORTED")
         self.assertEqual(risk.statement, analysis["riskSummary"])
         self.assertIn("차입 만기일", risk.package.missing_facts)
+
+    def test_ai_result_without_a_cited_rag_chunk_does_not_create_risk(self) -> None:
+        analysis = {
+            "riskSummary": "Review is required.",
+            "issueTypes": ["Borrowing classification"],
+            "expectedQuestions": [],
+            "evidenceChecklist": [],
+            "responseGuidance": [],
+            "referenceIds": [],
+            "missingFacts": [],
+            "uncertainty": "HIGH",
+        }
+
+        self.assertIsNone(risk_from_ai_analysis(self.event, None, analysis, []))
 
 
 class FakeRepository:
@@ -221,7 +238,7 @@ class AiOrchestrationTest(unittest.TestCase):
         first = process_journals(repo, [line], actor="test", analysis_provider=provider)
         second = process_journals(repo, [line], actor="test", analysis_provider=provider)
 
-        self.assertEqual(first["risks"], 1)
+        self.assertEqual(first["risks"], 0)
         self.assertEqual(second["reusedPatterns"], 0)
         self.assertEqual(provider.calls, 2)
 
@@ -241,7 +258,7 @@ class AiOrchestrationTest(unittest.TestCase):
         )
 
         self.assertEqual(result["events"], 1)
-        self.assertEqual(result["risks"], 1)
+        self.assertEqual(result["risks"], 0)
 
     def test_generic_manual_review_is_reassessed_when_ai_is_enabled_later(self) -> None:
         company_id = uuid4()
@@ -254,18 +271,16 @@ class AiOrchestrationTest(unittest.TestCase):
         )
         repo = FakeRepository()
         first = process_journals(repo, [line], actor="test", external_ai_enabled=False)
-        original = next(iter(repo.risks.values()))
+        self.assertEqual(len(repo.risks), 0)
         provider = FakeAnalysisProvider()
 
         second = process_journals(repo, [line], actor="test", analysis_provider=provider)
 
-        self.assertEqual(first["risks"], 1)
-        self.assertEqual(second["events"], 0)
+        self.assertEqual(first["risks"], 0)
+        self.assertEqual(second["events"], 1)
         self.assertEqual(second["risks"], 0)
         self.assertEqual(provider.calls, 1)
-        self.assertEqual(len(repo.risks), 1)
-        self.assertIs(next(iter(repo.risks.values())), original)
-        self.assertEqual(original.route.value, "RAG_LLM")
+        self.assertEqual(len(repo.risks), 0)
 
     def test_unexpected_ai_failure_falls_back_without_stopping_import(self) -> None:
         company_id = uuid4()
@@ -283,7 +298,7 @@ class AiOrchestrationTest(unittest.TestCase):
         )
 
         self.assertEqual(result["events"], 1)
-        self.assertEqual(result["risks"], 1)
+        self.assertEqual(result["risks"], 0)
 
 
 if __name__ == "__main__":

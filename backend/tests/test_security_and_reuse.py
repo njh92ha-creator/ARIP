@@ -61,10 +61,8 @@ class ReuseTest(unittest.TestCase):
 
         process_journals(repo, lines("JE-1"), actor="test")
         process_journals(repo, lines("JE-2"), actor="test")
-        routes = [risk.route.value for risk in repo.risks.values()]
-        self.assertIn("RULE_TEMPLATE", routes)
-        self.assertIn("REUSE_WITH_REASSESSMENT", routes)
-        self.assertEqual(len(repo.risk_memory), 2)
+        self.assertEqual(len(repo.risks), 0)
+        self.assertEqual(len(repo.risk_memory), 0)
 
 
 if __name__ == "__main__":
