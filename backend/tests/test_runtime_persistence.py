@@ -4,9 +4,19 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 from app.main import app
 from app.domain.repository import InMemoryRepository
+from app.api.schemas import AiConnectionTestInput
 
 
 class RuntimePersistenceTests(unittest.TestCase):
+    def test_ai_connection_test_accepts_an_analysis_prompt(self):
+        payload = AiConnectionTestInput(
+            secret_reference="env:NVIDIA_API_KEY",
+            provider="nvidia",
+            analysis_prompt="분석할 전표입니다.",
+        )
+
+        self.assertEqual(payload.analysis_prompt, "분석할 전표입니다.")
+
     def test_runtime_setting_survives_in_memory_repository(self):
         repository = InMemoryRepository(persistent=False)
         setting = {"aiConnection": {"configured": True}, "knowledgeSources": []}

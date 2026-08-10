@@ -45,6 +45,7 @@ from app.services.risk_review import REVIEW_DECISIONS, current_review_decision, 
 from app.services.import_pipeline import normalize_general_ledger, normalize_settlement
 from app.services.mapping import propose_mapping
 from app.services.orchestrator import process_journals
+from app.ai.provider import KIFRS_EVENT_ANALYSIS_PROMPT
 from app.services.knowledge_rag import KnowledgeIndexError, index_document
 from app.services.closing_analysis import (
     analyze_closing_analysis_set,
@@ -351,8 +352,11 @@ def test_ai_connection(
                 headers={"Authorization": f"Bearer {api_key}"},
                 json={
                     "model": payload.chat_model or "meta/llama-3.1-70b-instruct",
-                    "messages": [{"role": "user", "content": "Reply only with OK."}],
-                    "max_tokens": 16,
+                    "messages": ([
+                        {"role": "system", "content": KIFRS_EVENT_ANALYSIS_PROMPT},
+                        {"role": "user", "content": payload.analysis_prompt},
+                    ] if payload.analysis_prompt else [{"role": "user", "content": "Reply only with OK."}]),
+                    "max_tokens": 900 if payload.analysis_prompt else 16,
                     "temperature": 0,
                 },
                 timeout=20.0,
@@ -366,6 +370,9 @@ def test_ai_connection(
     except httpx.HTTPError:
         return {"ok": False, "message": "OpenAI 연결에 실패했습니다. 네트워크 상태를 확인해 주세요."}
     if response.status_code == 200:
+        if payload.analysis_prompt and payload.provider.lower() == "nvidia":
+            answer = response.json().get("choices", [{}])[0].get("message", {}).get("content")
+            return {"ok": True, "answer": answer}
         return {"ok": True, "message": "OpenAI 연결이 확인되었습니다."}
     if response.status_code in {401, 403}:
         return {"ok": False, "message": "API 키를 확인해 주세요."}
