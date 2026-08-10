@@ -1,7 +1,8 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from './layout/AppShell'
 import { DashboardPage } from './pages/DashboardPage'
-import { EventDetailPage, EventListPage } from './pages/EventPages'
+import { EventDetailPage } from './pages/EventPages'
+import { RiskReviewPage } from './pages/RiskReviewPage'
 import { JournalPage } from './pages/JournalPage'
 import { LoginPage } from './pages/LoginPage'
 import { RiskDetailPage, RiskListPage } from './pages/RiskPages'
@@ -16,7 +17,7 @@ export default function App() {
         <Route index element={<DashboardPage />} />
         <Route path="risks" element={<RiskListPage />} />
         <Route path="risks/:riskId" element={<RiskDetailPage />} />
-        <Route path="events" element={<EventListPage />} />
+        <Route path="events" element={<RiskReviewPage />} />
         <Route path="events/:eventId" element={<EventDetailPage />} />
         <Route path="journals" element={<JournalPage />} />
         <Route path="uploads" element={<UploadPage />} />

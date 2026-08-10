@@ -20,6 +20,7 @@ import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
 import { AccountingEvent, api, Company, Risk } from '../api'
+import { RiskReviewDecisionCard } from '../components/RiskReviewDecisionCard'
 
 const border = '#E5E7EB'
 const primary = '#0056B0'
@@ -122,6 +123,7 @@ export function RiskDetailPage() {
       <Box sx={{ textAlign: { md: 'right' } }}><Typography sx={labelSx}>분석 점수</Typography><Typography sx={{ fontSize: 32, fontWeight: 700, color: primary }}>{risk.score}</Typography></Box>
     </Stack>
     <Stack spacing={3}>
+      <RiskReviewDecisionCard risk={risk} />
       <AnalysisInput lines={lines} event={risk.event} />
       <Card sx={cardSx}><CardContent sx={{ p: 2.5 }}><SectionTitle>분석 결과</SectionTitle><Typography sx={{ mt: 2, lineHeight: 1.8 }}>{risk.statement}</Typography><Typography sx={{ mt: 2, color: 'text.secondary', lineHeight: 1.7 }}>{pkg?.summary}</Typography></CardContent></Card>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'repeat(2,1fr)' }, gap: 3 }}>

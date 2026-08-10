@@ -24,6 +24,7 @@ from app.api.schemas import (
     KnowledgeSourceInput,
     MappingApprove,
     MaterialityCreate,
+    RiskReviewDecision,
     RiskTransition,
 )
 from app.domain.models import (
@@ -39,6 +40,7 @@ from app.domain.repository import repository
 from app.core.security import CurrentUser, Role, current_user, require_roles
 from app.core.database import check_database
 from app.services.risk_timestamps import latest_analysis_at
+from app.services.risk_review import REVIEW_DECISIONS, current_review_decision, is_visible_in_risk_lists, recommend_review_decision
 from app.services.import_pipeline import normalize_general_ledger, normalize_settlement
 from app.services.mapping import propose_mapping
 from app.services.orchestrator import process_journals
@@ -866,12 +868,50 @@ def dashboard(company_id: UUID) -> Any:
 def list_risks(company_id: UUID) -> Any:
     return encode(
         [
-            {
-                **encode(risk),
-                "analyzed_at": latest_analysis_at(repository.risk_memory.get(risk.id, [])),
-            }
+            _risk_review_payload(risk)
             for risk in repository.risks.values()
             if risk.company_id == company_id
+            and is_visible_in_risk_lists(repository.risk_memory.get(risk.id, []))
+        ]
+    )
+
+
+def _risk_review_payload(risk: Any) -> dict[str, Any]:
+    event = repository.events.get(risk.event_id)
+    lines = [
+        line for line in repository.journal_lines.values()
+        if event and line.id in event.journal_line_ids
+    ]
+    history = [
+        (
+            prior_event,
+            [
+                line for line in repository.journal_lines.values()
+                if line.id in prior_event.journal_line_ids
+            ],
+            repository.risk_memory.get(prior_risk.id, []),
+        )
+        for prior_risk in repository.risks.values()
+        if prior_risk.company_id == risk.company_id
+        and prior_risk.id != risk.id
+        and (prior_event := repository.events.get(prior_risk.event_id))
+    ]
+    return {
+        **encode(risk),
+        "analyzed_at": latest_analysis_at(repository.risk_memory.get(risk.id, [])),
+        "review_decision": current_review_decision(repository.risk_memory.get(risk.id, [])),
+        "review_recommendation": recommend_review_decision(event, lines, history) if event else None,
+    }
+
+
+@router.get("/risk-reviews")
+def list_risk_reviews(company_id: UUID) -> Any:
+    return encode(
+        [
+            _risk_review_payload(risk)
+            for risk in repository.risks.values()
+            if risk.company_id == company_id
+            and current_review_decision(repository.risk_memory.get(risk.id, [])) in {"CHECK", "PENDING"}
         ]
     )
 
@@ -886,7 +926,7 @@ def get_risk(risk_id: UUID) -> Any:
         if event and line.id in event.journal_line_ids
     ]
     return {
-        **encode(risk),
+        **_risk_review_payload(risk),
         "event": encode(event) if event else None,
         "journalLines": encode(lines),
         "memory": encode(repository.risk_memory.get(risk.id, [])),
@@ -969,6 +1009,44 @@ def get_event(event_id: UUID) -> Any:
         "journalLines": encode(lines),
         "relatedRisks": encode(related_risks),
     }
+
+
+@router.post("/risks/{risk_id}/review-decision")
+def set_risk_review_decision(
+    risk_id: UUID,
+    payload: RiskReviewDecision,
+    user: CurrentUser = Depends(
+        require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
+    ),
+) -> Any:
+    risk = _entity(repository.risks, risk_id, "risk")
+    decision = payload.decision.upper()
+    if decision not in REVIEW_DECISIONS:
+        raise HTTPException(422, "decision must be CHECK, PENDING, or PASS")
+    if payload.expected_version != risk.row_version:
+        raise HTTPException(409, "risk has been updated; refresh and try again")
+    risk.row_version += 1
+    repository.save(risk)
+    repository.append_memory(
+        RiskMemoryEntry(
+            risk_id=risk.id,
+            entry_type="REVIEW_DECISION",
+            summary=decision,
+            actor=user.user_id,
+            metadata={"decision": decision},
+        )
+    )
+    repository.append_audit(
+        AuditLogEntry(
+            action="RISK_REVIEW_DECISION_SET",
+            resource_type="Risk",
+            resource_id=str(risk.id),
+            actor=user.user_id,
+            company_id=risk.company_id,
+            reason=decision,
+        )
+    )
+    return encode(_risk_review_payload(risk))
 
 
 @router.get("/journals")

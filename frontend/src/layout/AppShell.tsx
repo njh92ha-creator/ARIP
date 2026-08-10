@@ -25,7 +25,7 @@ const drawerWidth = 216
 const nav = [
   ['대시보드', '/', <Dashboard />],
   ['리스크 관리', '/risks', <Gavel />],
-  ['회계사건(Event)', '/events', <EventNote />],
+  ['리스크 검토', '/events', <EventNote />],
   ['전표 조회', '/journals', <Description />],
   ['Excel 업로드', '/uploads', <UploadFile />],
   ['설정', '/settings', <Settings />],

@@ -26,7 +26,10 @@ export interface Risk {
   route: string
   status: string
   materiality_level: string
+  row_version: number
   analyzed_at?: string | null
+  review_decision?: 'CHECK' | 'PENDING' | 'PASS'
+  review_recommendation?: { decision: 'CHECK' | 'PENDING' | 'PASS'; confidence: number; matched_cases: number } | null
   closing_analysis_set_id?: string
   cross_finding_ids?: string[]
   package: {
