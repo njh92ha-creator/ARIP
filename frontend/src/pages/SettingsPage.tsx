@@ -64,6 +64,7 @@ import {
 } from "@mui/icons-material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, Company, Risk } from "../api";
+import { SettingsRiskManagement } from "./SettingsRiskManagement";
 
 const colors = {
   border: "#E5E7EB",
@@ -206,7 +207,7 @@ export function SettingsPage() {
           <KnowledgeSettings company={company} />
         </Stack>
       )}
-      {tab === 3 && <RiskManagementSettings company={company} />}
+      {tab === 3 && <SettingsRiskManagement company={company} />}
     </Box>
   );
 }
