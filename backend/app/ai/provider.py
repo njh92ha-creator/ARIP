@@ -131,7 +131,7 @@ class NvidiaAnalysisProvider:
         # NIM prototype endpoints can queue.  Keep an individual event bounded so
         # one slow model response cannot exhaust Vercel's function duration.
         client = OpenAI(
-            base_url=self.base_url, api_key=api_key, max_retries=0, timeout=25.0
+            base_url=self.base_url, api_key=api_key, max_retries=0, timeout=120.0
         )
         completion = client.chat.completions.create(
             model=self.model,

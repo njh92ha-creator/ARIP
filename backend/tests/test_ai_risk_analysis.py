@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import unittest
+import json
+import os
+import sys
+from pathlib import Path
+from types import SimpleNamespace
 from datetime import date
 from decimal import Decimal
 from uuid import uuid4
@@ -11,7 +16,7 @@ from app.services.ai_risk_analysis import (
     build_event_facts,
     risk_from_ai_analysis,
 )
-from app.ai.provider import AiUnavailableError
+from app.ai.provider import AiUnavailableError, NvidiaAnalysisProvider
 from app.services.orchestrator import process_journals
 
 
@@ -28,6 +33,48 @@ class AiRiskPackageTest(unittest.TestCase):
 
         self.assertEqual(package.evidence_status, "REFERENCE_PENDING")
         self.assertEqual(package.missing_facts, [])
+
+
+class NvidiaTimeoutConfigurationTest(unittest.TestCase):
+    def test_nvidia_analysis_waits_up_to_two_minutes(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeCompletions:
+            def create(self, **kwargs):
+                payload = {
+                        "riskSummary": "검토 결과", "issueTypes": [], "expectedQuestions": [],
+                        "evidenceChecklist": [], "responseGuidance": [], "referenceIds": [],
+                        "missingFacts": [], "uncertainty": "HIGH",
+                    }
+                message = SimpleNamespace(content=json.dumps(payload))
+                return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+        class FakeOpenAI:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+                self.chat = SimpleNamespace(completions=FakeCompletions())
+
+        original = sys.modules.get("openai")
+        sys.modules["openai"] = SimpleNamespace(OpenAI=FakeOpenAI)
+        previous_key = os.environ.get("NVIDIA_TEST_KEY")
+        os.environ["NVIDIA_TEST_KEY"] = "test-key"
+        try:
+            NvidiaAnalysisProvider(model="test-model", api_key_env="NVIDIA_TEST_KEY").analyze({}, [])
+        finally:
+            if original is None:
+                del sys.modules["openai"]
+            else:
+                sys.modules["openai"] = original
+            if previous_key is None:
+                del os.environ["NVIDIA_TEST_KEY"]
+            else:
+                os.environ["NVIDIA_TEST_KEY"] = previous_key
+
+        self.assertEqual(captured["timeout"], 120.0)
+
+    def test_vercel_function_allows_two_minutes(self) -> None:
+        config = json.loads((Path(__file__).parents[1] / "vercel.json").read_text(encoding="utf-8"))
+        self.assertEqual(config["functions"]["api/index.py"]["maxDuration"], 120)
 
 
 class AiRiskFactsTest(unittest.TestCase):
