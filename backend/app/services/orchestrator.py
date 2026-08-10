@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
+from time import perf_counter
 from typing import Any
 
 from app.ai.provider import AnalysisProvider, provider_from_settings
 from app.core.config import settings
-from app.domain.models import AuditLogEntry, RiskMemoryEntry
+from app.domain.models import AnalysisEventResult, AuditLogEntry, RiskMemoryEntry, utcnow
 from app.services.ai_risk_analysis import (
     build_event_facts,
     risk_from_ai_analysis,
@@ -14,6 +15,32 @@ from app.services.event_engine import cluster_journals, construct_event
 
 
 logger = logging.getLogger(__name__)
+
+
+def _is_timeout(exc: Exception) -> bool:
+    return type(exc).__name__ in {"APITimeoutError", "ReadTimeout", "TimeoutException"}
+
+
+def _save_event_result(
+    repo: Any, event: Any, *, status: str, attempts: int, duration_ms: int,
+    error: Exception | None = None,
+) -> None:
+    existing = getattr(repo, "analysis_event_results", {}).get(event.id)
+    result = existing or AnalysisEventResult(
+        company_id=event.company_id,
+        event_id=event.id,
+        closing_analysis_set_id=event.closing_analysis_set_id,
+        status=status,
+        attempts=attempts,
+        id=event.id,
+    )
+    result.status = status
+    result.attempts = attempts
+    result.duration_ms = duration_ms
+    result.error_type = type(error).__name__ if error else ""
+    result.error_message = str(error) if error else ""
+    result.updated_at = utcnow()
+    repo.save(result)
 
 
 def process_journals(
@@ -45,6 +72,7 @@ def process_journals(
     created_events = 0
     reused_events = 0
     created_risks = 0
+    retried_events = 0
     for cluster in cluster_journals(lines):
         candidate = construct_event(cluster)
         candidate.closing_analysis_set_id = cluster[0].closing_analysis_set_id
@@ -115,7 +143,23 @@ def process_journals(
                 # documents are not retrieved or sent to the model on this path.
                 references: list[dict[str, str]] = []
                 ai_stage = "llm_analysis"
-                analysis = provider.analyze(facts, references)
+                attempts = 0
+                while True:
+                    attempts += 1
+                    started_at = perf_counter()
+                    try:
+                        analysis = provider.analyze(facts, references)
+                        duration_ms = int((perf_counter() - started_at) * 1000)
+                        logger.info("AI analysis completed: event_id=%s attempt=%s duration_ms=%s", event.id, attempts, duration_ms)
+                        break
+                    except Exception as exc:
+                        duration_ms = int((perf_counter() - started_at) * 1000)
+                        logger.warning("AI analysis failed: event_id=%s attempt=%s duration_ms=%s error_type=%s", event.id, attempts, duration_ms, type(exc).__name__)
+                        if _is_timeout(exc) and attempts == 1:
+                            retried_events += 1
+                            _save_event_result(repo, event, status="RETRYING", attempts=attempts, duration_ms=duration_ms, error=exc)
+                            continue
+                        raise
                 ai_stage = "risk_from_ai_analysis"
                 generated_risk = risk_from_ai_analysis(event, materiality, analysis, references)
                 if reassess_with_ai and prior_risk and generated_risk:
@@ -132,6 +176,7 @@ def process_journals(
                     risk = prior_risk
                 else:
                     risk = generated_risk
+                _save_event_result(repo, event, status="COMPLETED" if risk else "NO_ISSUE", attempts=attempts, duration_ms=duration_ms)
             except Exception as exc:
                 # Preserve the safe fallback while making an operational failure
                 # diagnosable without writing secrets or source document contents.
@@ -146,6 +191,7 @@ def process_journals(
                 # generic review risk.  The import still completes without an
                 # unsupported audit conclusion.
                 risk = None
+                _save_event_result(repo, event, status="FAILED", attempts=locals().get("attempts", 1), duration_ms=locals().get("duration_ms", 0), error=exc)
         if risk:
             linked_finding_ids = [
                 finding.id
@@ -185,4 +231,5 @@ def process_journals(
         "events": created_events,
         "reusedPatterns": reused_events,
         "risks": created_risks,
+        "retriedEvents": retried_events,
     }

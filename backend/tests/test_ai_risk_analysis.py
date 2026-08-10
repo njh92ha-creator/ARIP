@@ -204,13 +204,14 @@ class FakeRepository:
         self.materiality_profiles = {}
         self.journal_lines = {}
         self.events = {}
+        self.analysis_event_results = {}
         self.risks = {}
         self.processed_source_hashes = set()
         self.audit_log = []
         self.memory = []
 
     def save(self, item):
-        target = self.journal_lines if isinstance(item, JournalLine) else self.events if isinstance(item, AccountingEvent) else self.risks
+        target = self.journal_lines if isinstance(item, JournalLine) else self.events if isinstance(item, AccountingEvent) else self.analysis_event_results if hasattr(item, "event_id") and hasattr(item, "attempts") else self.risks
         target[item.id] = item
         return item
 
@@ -250,6 +251,30 @@ class UnavailableAnalysisProvider:
 class BrokenAnalysisProvider:
     def analyze(self, event_facts, references):
         raise RuntimeError("test provider failure")
+
+
+class APITimeoutError(Exception):
+    pass
+
+
+class TimeoutThenSuccessProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def analyze(self, event_facts, references):
+        self.calls += 1
+        if self.calls == 1:
+            raise APITimeoutError("test timeout")
+        return {
+            "riskSummary": "전표 사실에 대한 확인이 필요합니다.",
+            "issueTypes": ["회계처리 검토"],
+            "expectedQuestions": ["거래 조건은 무엇인가?"],
+            "evidenceChecklist": ["계약서"],
+            "responseGuidance": ["증빙을 확인합니다."],
+            "referenceIds": [],
+            "missingFacts": ["계약 조건"],
+            "uncertainty": "MEDIUM",
+        }
 
 
 class AiOrchestrationTest(unittest.TestCase):
@@ -329,6 +354,27 @@ class AiOrchestrationTest(unittest.TestCase):
 
         self.assertEqual(result["events"], 1)
         self.assertEqual(result["risks"], 0)
+
+    def test_only_timeout_event_is_retried_and_saved_independently(self) -> None:
+        company_id = uuid4()
+        line = JournalLine(
+            company_id=company_id, source_row=1, document_number="JE-5",
+            posting_date=date(2025, 6, 4), account_code="211000",
+            account_name="단기차입금", local_amount=Decimal("100000000"),
+            debit_credit_indicator="C", fiscal_year=2025, fiscal_period=6,
+            line_text="차입금 거래",
+        )
+        repo = FakeRepository()
+        provider = TimeoutThenSuccessProvider()
+
+        result = process_journals(repo, [line], actor="test", analysis_provider=provider)
+
+        self.assertEqual(provider.calls, 2)
+        self.assertEqual(result["retriedEvents"], 1)
+        self.assertEqual(result["risks"], 1)
+        stored = next(iter(repo.analysis_event_results.values()))
+        self.assertEqual(stored.status, "COMPLETED")
+        self.assertEqual(stored.attempts, 2)
 
 
 if __name__ == "__main__":

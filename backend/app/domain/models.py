@@ -235,6 +235,20 @@ class RiskMemoryEntry:
 
 
 @dataclass(slots=True)
+class AnalysisEventResult:
+    company_id: UUID
+    event_id: UUID
+    closing_analysis_set_id: UUID | None
+    status: str
+    attempts: int
+    duration_ms: int = 0
+    error_type: str = ""
+    error_message: str = ""
+    updated_at: datetime = field(default_factory=utcnow)
+    id: UUID = field(default_factory=uuid4)
+
+
+@dataclass(slots=True)
 class VarianceObservation:
     company_id: UUID
     period: str

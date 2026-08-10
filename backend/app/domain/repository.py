@@ -12,6 +12,7 @@ from app.core.database import engine
 
 from .models import (
     AccountingEvent,
+    AnalysisEventResult,
     AuditLogEntry,
     ClosingAnalysisSet,
     CompanySettings,
@@ -44,6 +45,7 @@ class InMemoryRepository:
         self.settlement_balances: dict[UUID, SettlementBalance] = {}
         self.cross_analysis_findings: dict[UUID, CrossAnalysisFinding] = {}
         self.events: dict[UUID, AccountingEvent] = {}
+        self.analysis_event_results: dict[UUID, AnalysisEventResult] = {}
         self.risks: dict[UUID, Risk] = {}
         self.risk_memory: dict[UUID, list[RiskMemoryEntry]] = defaultdict(list)
         self.variance_observations: dict[UUID, VarianceObservation] = {}
@@ -109,6 +111,7 @@ class InMemoryRepository:
                         "SettlementBalance": "settlement_balances",
                         "CrossAnalysisFinding": "cross_analysis_findings",
                         "AccountingEvent": "events",
+                        "AnalysisEventResult": "analysis_event_results",
                         "Risk": "risks",
                         "VarianceObservation": "variance_observations",
                     }.get(collection)
@@ -206,6 +209,7 @@ class InMemoryRepository:
                 SettlementBalance: self.settlement_balances,
                 CrossAnalysisFinding: self.cross_analysis_findings,
                 AccountingEvent: self.events,
+                AnalysisEventResult: self.analysis_event_results,
                 Risk: self.risks,
                 VarianceObservation: self.variance_observations,
             }
