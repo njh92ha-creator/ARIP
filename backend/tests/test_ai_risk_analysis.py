@@ -41,6 +41,7 @@ class NvidiaTimeoutConfigurationTest(unittest.TestCase):
 
         class FakeCompletions:
             def create(self, **kwargs):
+                captured["messages"] = kwargs["messages"]
                 payload = {
                         "riskSummary": "검토 결과", "issueTypes": [], "expectedQuestions": [],
                         "evidenceChecklist": [], "responseGuidance": [], "referenceIds": [],
@@ -71,6 +72,8 @@ class NvidiaTimeoutConfigurationTest(unittest.TestCase):
                 os.environ["NVIDIA_TEST_KEY"] = previous_key
 
         self.assertEqual(captured["timeout"], 120.0)
+        policy = json.loads(captured["messages"][1]["content"])["policy"]
+        self.assertIn("Identify transaction-specific accounting hypotheses before evaluating citations", policy)
 
     def test_vercel_function_allows_two_minutes(self) -> None:
         config = json.loads((Path(__file__).parents[1] / "vercel.json").read_text(encoding="utf-8"))
@@ -168,6 +171,25 @@ class AiRiskFactsTest(unittest.TestCase):
 
         self.assertIsNone(risk_from_ai_analysis(self.event, None, analysis, []))
 
+    def test_ai_hypothesis_without_direct_rag_citation_is_saved_for_fact_confirmation(self) -> None:
+        analysis = {
+            "riskSummary": "개발 관련 임대료가 개발비로 처리되어 인식요건 충족 여부의 확인이 필요합니다.",
+            "issueTypes": ["개발비 인식요건 검토"],
+            "expectedQuestions": ["기술적 실현가능성과 미래 경제적 효익을 입증할 수 있는가?"],
+            "evidenceChecklist": ["개발계획서", "기술검토 문서", "원가 배부근거"],
+            "responseGuidance": ["확인 전에는 오류로 단정하지 않습니다."],
+            "referenceIds": [],
+            "missingFacts": ["기술적 실현가능성", "미래 경제적 효익", "원가 배부근거"],
+            "uncertainty": "HIGH",
+        }
+
+        risk = risk_from_ai_analysis(self.event, None, analysis, [])
+
+        self.assertIsNotNone(risk)
+        assert risk is not None
+        self.assertEqual(risk.package.evidence_status, "REFERENCE_PENDING")
+        self.assertEqual(risk.package.generated_by, "AI_HYPOTHESIS_RAG_PENDING")
+
 
 class FakeRepository:
     def __init__(self) -> None:
@@ -238,7 +260,7 @@ class AiOrchestrationTest(unittest.TestCase):
         first = process_journals(repo, [line], actor="test", analysis_provider=provider)
         second = process_journals(repo, [line], actor="test", analysis_provider=provider)
 
-        self.assertEqual(first["risks"], 0)
+        self.assertEqual(first["risks"], 1)
         self.assertEqual(second["reusedPatterns"], 0)
         self.assertEqual(provider.calls, 2)
 
@@ -278,9 +300,9 @@ class AiOrchestrationTest(unittest.TestCase):
 
         self.assertEqual(first["risks"], 0)
         self.assertEqual(second["events"], 1)
-        self.assertEqual(second["risks"], 0)
+        self.assertEqual(second["risks"], 1)
         self.assertEqual(provider.calls, 1)
-        self.assertEqual(len(repo.risks), 0)
+        self.assertEqual(len(repo.risks), 1)
 
     def test_unexpected_ai_failure_falls_back_without_stopping_import(self) -> None:
         company_id = uuid4()
