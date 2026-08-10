@@ -76,7 +76,7 @@ class NvidiaTimeoutConfigurationTest(unittest.TestCase):
         self.assertIn("동일 전표번호 안의 행만", captured["messages"][0]["content"])
         self.assertNotIn("개발비·무형자산 거래에서는", captured["messages"][0]["content"])
         policy = json.loads(captured["messages"][1]["content"])["policy"]
-        self.assertIn("Identify transaction-specific accounting hypotheses before evaluating citations", policy)
+        self.assertIn("RAG retrieval is disabled", policy)
 
     def test_vercel_function_allows_two_minutes(self) -> None:
         config = json.loads((Path(__file__).parents[1] / "vercel.json").read_text(encoding="utf-8"))
@@ -155,12 +155,12 @@ class AiRiskFactsTest(unittest.TestCase):
 
         self.assertIsNotNone(risk)
         assert risk is not None
-        self.assertEqual(risk.route.value, "RAG_LLM")
-        self.assertEqual(risk.package.evidence_status, "SUPPORTED")
+        self.assertEqual(risk.route.value, "LLM_KIFRS")
+        self.assertEqual(risk.package.evidence_status, "AI_KIFRS_ANALYSIS")
         self.assertEqual(risk.statement, analysis["riskSummary"])
         self.assertIn("차입 만기일", risk.package.missing_facts)
 
-    def test_ai_result_without_a_cited_rag_chunk_does_not_create_risk(self) -> None:
+    def test_ai_result_without_a_rag_chunk_creates_a_kifrs_ai_risk(self) -> None:
         analysis = {
             "riskSummary": "Review is required.",
             "issueTypes": ["Borrowing classification"],
@@ -172,7 +172,12 @@ class AiRiskFactsTest(unittest.TestCase):
             "uncertainty": "HIGH",
         }
 
-        self.assertIsNone(risk_from_ai_analysis(self.event, None, analysis, []))
+        risk = risk_from_ai_analysis(self.event, None, analysis, [])
+
+        self.assertIsNotNone(risk)
+        assert risk is not None
+        self.assertEqual(risk.route.value, "LLM_KIFRS")
+        self.assertEqual(risk.package.generated_by, "AI_KIFRS_ANALYSIS")
 
     def test_ai_hypothesis_without_direct_rag_citation_is_saved_for_fact_confirmation(self) -> None:
         analysis = {
@@ -190,8 +195,8 @@ class AiRiskFactsTest(unittest.TestCase):
 
         self.assertIsNotNone(risk)
         assert risk is not None
-        self.assertEqual(risk.package.evidence_status, "REFERENCE_PENDING")
-        self.assertEqual(risk.package.generated_by, "AI_HYPOTHESIS_RAG_PENDING")
+        self.assertEqual(risk.package.evidence_status, "AI_KIFRS_ANALYSIS")
+        self.assertEqual(risk.package.generated_by, "AI_KIFRS_ANALYSIS")
 
 
 class FakeRepository:

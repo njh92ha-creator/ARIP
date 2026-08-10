@@ -111,19 +111,14 @@ def risk_from_ai_analysis(
     if not issue_types or not summary:
         return None
 
-    requested_ids = {str(item) for item in analysis.get("referenceIds", [])}
-    referenced = [item for item in approved_references if item["id"] in requested_ids]
-    if requested_ids and not referenced:
-        return None
     missing_facts = [
         str(item).strip() for item in analysis.get("missingFacts", []) if str(item).strip()
     ]
-    if not referenced and not missing_facts:
-        return None
-    evidence_status = "SUPPORTED" if referenced else "REFERENCE_PENDING"
+    referenced: list[dict[str, str]] = []
+    evidence_status = "AI_KIFRS_ANALYSIS"
     materiality_level, materiality_points = _materiality(event, materiality)
     uncertainty = str(analysis.get("uncertainty", "HIGH"))
-    base_score = 62 if evidence_status == "SUPPORTED" else 52
+    base_score = 52
     if uncertainty == "LOW":
         base_score += 8
     elif uncertainty == "HIGH":
@@ -145,7 +140,7 @@ def risk_from_ai_analysis(
         expected_questions=[str(item) for item in analysis.get("expectedQuestions", [])],
         evidence_checklist=[str(item) for item in analysis.get("evidenceChecklist", [])],
         response_guidance=[str(item) for item in analysis.get("responseGuidance", [])],
-        generated_by="AI_RAG_SUPPORTED" if referenced else "AI_HYPOTHESIS_RAG_PENDING",
+        generated_by="AI_KIFRS_ANALYSIS",
         missing_facts=missing_facts,
         evidence_status=evidence_status,
     )
@@ -158,7 +153,7 @@ def risk_from_ai_analysis(
         statement=statement,
         level=level,
         score=score,
-        route=AnalysisRoute.RAG_LLM,
+        route=AnalysisRoute.LLM_KIFRS,
         package=package,
         materiality_level=materiality_level,
     )

@@ -269,7 +269,7 @@ def _enrich_or_create_cross_risk(
     else:
         # Keep an AI-generated, transaction-specific review opinion visible;
         # the cross finding is linked as evidence instead of overwriting it.
-        if risk.route != AnalysisRoute.RAG_LLM:
+        if risk.route not in {AnalysisRoute.RAG_LLM, AnalysisRoute.LLM_KIFRS}:
             risk.title = "Borrowing classification and liquidity review"
             risk.statement = finding.statement
             risk.level = RiskLevel.HIGH
@@ -279,7 +279,7 @@ def _enrich_or_create_cross_risk(
         risk.package.cross_finding_ids = sorted(
             set([*risk.package.cross_finding_ids, finding.id]), key=str
         )
-        if risk.route != AnalysisRoute.RAG_LLM:
+        if risk.route not in {AnalysisRoute.RAG_LLM, AnalysisRoute.LLM_KIFRS}:
             risk.package.expected_questions = list(
                 dict.fromkeys([*risk.package.expected_questions, *questions])
             )
