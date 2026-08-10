@@ -26,6 +26,7 @@ export interface Risk {
   route: string
   status: string
   materiality_level: string
+  analyzed_at?: string | null
   closing_analysis_set_id?: string
   cross_finding_ids?: string[]
   package: {

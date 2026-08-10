@@ -53,6 +53,19 @@ function Empty({ text }: { text: string }) {
   return <Typography color="text.secondary" sx={{ py: 2 }}>{text}</Typography>
 }
 
+function formatAnalysisDate(value?: string | null) {
+  if (!value || Number.isNaN(new Date(value).getTime())) return '-'
+  return new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(value)).replace(',', '')
+}
+
 export function RiskListPage() {
   const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: async () => (await api.get<Company[]>('/companies')).data })
   const company = companies?.[0]
@@ -67,14 +80,14 @@ export function RiskListPage() {
     <Typography color="text.secondary" sx={{ mt: .75, mb: 3 }}>업로드 자료 분석에서 실제로 생성된 리스크만 표시합니다.</Typography>
     <Card sx={cardSx}>
       <Box sx={{ overflowX: 'auto' }}><Table sx={{ minWidth: 760 }}>
-        <TableHead><TableRow><TableCell>리스크 ID</TableCell><TableCell>분석 결과</TableCell><TableCell>분석 점수</TableCell><TableCell>심각도</TableCell><TableCell>상태</TableCell><TableCell>분석 경로</TableCell></TableRow></TableHead>
+        <TableHead><TableRow><TableCell>리스크 ID</TableCell><TableCell>분석 결과</TableCell><TableCell>분석 일시</TableCell><TableCell>분석 점수</TableCell><TableCell>심각도</TableCell><TableCell>상태</TableCell><TableCell>분석 경로</TableCell></TableRow></TableHead>
         <TableBody>
-          {isLoading ? <TableRow><TableCell colSpan={6} align="center" sx={{ py: 8 }}><CircularProgress size={28} /></TableCell></TableRow> :
-            data.length === 0 ? <TableRow><TableCell colSpan={6} align="center" sx={{ py: 8, color: 'text.secondary' }}>분석으로 생성된 리스크가 없습니다.</TableCell></TableRow> :
+          {isLoading ? <TableRow><TableCell colSpan={7} align="center" sx={{ py: 8 }}><CircularProgress size={28} /></TableCell></TableRow> :
+            data.length === 0 ? <TableRow><TableCell colSpan={7} align="center" sx={{ py: 8, color: 'text.secondary' }}>분석으로 생성된 리스크가 없습니다.</TableCell></TableRow> :
             data.map((risk) => <TableRow key={risk.id} hover>
               <TableCell><Typography component={Link} to={`/risks/${risk.id}`} sx={{ color: primary, fontWeight: 700, textDecoration: 'none' }}>{risk.id}</Typography></TableCell>
               <TableCell><Typography component={Link} to={`/risks/${risk.id}`} sx={{ color: 'text.primary', fontWeight: 600, textDecoration: 'none' }}>{risk.title}</Typography><Typography color="text.secondary" fontSize={12} sx={{ mt: .5 }}>{risk.statement}</Typography></TableCell>
-              <TableCell>{risk.score}</TableCell><TableCell><SeverityPill value={risk.level} /></TableCell><TableCell>{risk.status}</TableCell><TableCell>{risk.route}</TableCell>
+              <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatAnalysisDate(risk.analyzed_at)}</TableCell><TableCell>{risk.score}</TableCell><TableCell><SeverityPill value={risk.level} /></TableCell><TableCell>{risk.status}</TableCell><TableCell>{risk.route}</TableCell>
             </TableRow>)}
         </TableBody>
       </Table></Box>

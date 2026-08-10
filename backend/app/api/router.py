@@ -38,6 +38,7 @@ from app.domain.models import (
 from app.domain.repository import repository
 from app.core.security import CurrentUser, Role, current_user, require_roles
 from app.core.database import check_database
+from app.services.risk_timestamps import latest_analysis_at
 from app.services.import_pipeline import normalize_general_ledger, normalize_settlement
 from app.services.mapping import propose_mapping
 from app.services.orchestrator import process_journals
@@ -863,7 +864,16 @@ def dashboard(company_id: UUID) -> Any:
 
 @router.get("/risks")
 def list_risks(company_id: UUID) -> Any:
-    return encode([risk for risk in repository.risks.values() if risk.company_id == company_id])
+    return encode(
+        [
+            {
+                **encode(risk),
+                "analyzed_at": latest_analysis_at(repository.risk_memory.get(risk.id, [])),
+            }
+            for risk in repository.risks.values()
+            if risk.company_id == company_id
+        ]
+    )
 
 
 @router.get("/risks/{risk_id}")
