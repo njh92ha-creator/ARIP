@@ -73,8 +73,13 @@ def process_journals(
     reused_events = 0
     created_risks = 0
     retried_events = 0
-    for cluster in cluster_journals(lines):
-        candidate = construct_event(cluster)
+    clusters = cluster_journals(lines)
+    candidates = [(cluster, construct_event(cluster)) for cluster in clusters]
+    same_type_voucher_counts = {
+        event_type: sum(1 for _, candidate in candidates if candidate.event_type == event_type)
+        for event_type in {candidate.event_type for _, candidate in candidates}
+    }
+    for cluster, candidate in candidates:
         candidate.closing_analysis_set_id = cluster[0].closing_analysis_set_id
         prior_event = repo.event_by_hash(candidate.company_id, candidate.event_hash)
         prior_risk = (
@@ -118,7 +123,11 @@ def process_journals(
                     enabled=ai_enabled, chat_model=ai_model,
                     provider=ai_provider, api_key_env=ai_key_env,
                 )
-                facts = build_event_facts(event, cluster)
+                facts = build_event_facts(
+                    event,
+                    cluster,
+                    same_type_voucher_count=same_type_voucher_counts[event.event_type],
+                )
                 ai_stage = "build_event_facts"
                 linked_findings = [
                     finding

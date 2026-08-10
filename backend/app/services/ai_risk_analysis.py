@@ -16,7 +16,7 @@ from app.domain.models import (
 
 
 def build_event_facts(
-    event: AccountingEvent, lines: list[JournalLine]
+    event: AccountingEvent, lines: list[JournalLine], *, same_type_voucher_count: int = 0
 ) -> dict[str, Any]:
     """Create a compact, auditable event payload for one AI call."""
     descriptions = sorted(
@@ -49,6 +49,7 @@ def build_event_facts(
         "accountCodes": sorted({line.account_code for line in lines if line.account_code}),
         "journalDescriptions": descriptions,
         "journalLines": line_facts,
+        "sameTypeVoucherCount": same_type_voucher_count,
     }
 
 
@@ -143,6 +144,12 @@ def risk_from_ai_analysis(
         generated_by="AI_KIFRS_ANALYSIS",
         missing_facts=missing_facts,
         evidence_status=evidence_status,
+        related_accounts=[str(item) for item in analysis.get("relatedAccounts", [])],
+        voucher_count=int(analysis.get("voucherCount", 0)),
+        event_inference=str(analysis.get("eventInference", "")),
+        audit_issues=[str(item) for item in analysis.get("auditIssues", [])],
+        standards_evidence=[dict(item) for item in analysis.get("standardsEvidence", [])],
+        ledger_evidence=[dict(item) for item in analysis.get("ledgerEvidence", [])],
     )
     title = f"검토 필요: {issue_types[0]}"
     statement = summary

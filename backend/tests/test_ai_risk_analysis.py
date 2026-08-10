@@ -120,6 +120,11 @@ class AiRiskFactsTest(unittest.TestCase):
         self.assertIn("\uc7a5\uae30 \ucc28\uc785\uae08", facts["journalDescriptions"][0])
         self.assertEqual(facts["amount"], "100000000")
 
+    def test_build_event_facts_includes_same_type_voucher_count(self) -> None:
+        facts = build_event_facts(self.event, self.lines, same_type_voucher_count=3)
+
+        self.assertEqual(facts["sameTypeVoucherCount"], 3)
+
     def test_reference_context_excludes_pending_documents(self) -> None:
         candidates = {
             "approved": {
@@ -178,6 +183,37 @@ class AiRiskFactsTest(unittest.TestCase):
         assert risk is not None
         self.assertEqual(risk.route.value, "LLM_KIFRS")
         self.assertEqual(risk.package.generated_by, "AI_KIFRS_ANALYSIS")
+
+    def test_ai_analysis_persists_structured_audit_output(self) -> None:
+        analysis = {
+            "riskSummary": "증자 거래로 추정되며 자본금과 주식발행초과금 분류의 근거 확인이 필요합니다.",
+            "issueTypes": ["자본 분류 검토"],
+            "relatedAccounts": ["현금", "자본금", "주식발행초과금"],
+            "voucherCount": 1,
+            "eventInference": "법인설립을 위한 현금 증자 거래로 추정됩니다.",
+            "auditIssues": ["자본금과 주식발행초과금의 분류 근거 확인"],
+            "expectedQuestions": ["주식 발행 조건과 액면가를 확인했습니까?"],
+            "evidenceChecklist": ["주주총회 의사록", "납입증명서"],
+            "responseGuidance": [],
+            "standardsEvidence": [],
+            "ledgerEvidence": [
+                {"documentNumber": "JE-1", "postingDate": "2025-06-04", "accountName": "현금", "debitCredit": "D", "amount": "501000000", "description": "법인설립 증자"}
+            ],
+            "referenceIds": [],
+            "missingFacts": ["주식 발행 조건"],
+            "uncertainty": "MEDIUM",
+        }
+
+        risk = risk_from_ai_analysis(self.event, None, analysis, [])
+
+        self.assertIsNotNone(risk)
+        assert risk is not None
+        self.assertEqual(risk.package.related_accounts, analysis["relatedAccounts"])
+        self.assertEqual(risk.package.voucher_count, 1)
+        self.assertEqual(risk.package.event_inference, analysis["eventInference"])
+        self.assertEqual(risk.package.audit_issues, analysis["auditIssues"])
+        self.assertEqual(risk.package.standards_evidence, [])
+        self.assertEqual(risk.package.ledger_evidence, analysis["ledgerEvidence"])
 
     def test_ai_hypothesis_without_direct_rag_citation_is_saved_for_fact_confirmation(self) -> None:
         analysis = {

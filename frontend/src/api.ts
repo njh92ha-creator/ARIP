@@ -42,6 +42,25 @@ export interface Risk {
     missing_facts: string[]
     evidence_status: string
     cross_finding_ids?: string[]
+    related_accounts?: string[]
+    voucher_count?: number
+    event_inference?: string
+    audit_issues?: string[]
+    standards_evidence?: Array<{
+      source: 'K-IFRS' | 'KASB_QA' | 'IFRIC'
+      title: string
+      paragraph: string
+      excerpt: string
+      url: string
+    }>
+    ledger_evidence?: Array<{
+      documentNumber: string
+      postingDate: string
+      accountName: string
+      debitCredit: string
+      amount: string
+      description: string
+    }>
   }
 }
 

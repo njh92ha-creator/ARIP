@@ -201,6 +201,12 @@ class RiskPackage:
     missing_facts: list[str] = field(default_factory=list)
     evidence_status: str = "REFERENCE_PENDING"
     cross_finding_ids: list[UUID] = field(default_factory=list)
+    related_accounts: list[str] = field(default_factory=list)
+    voucher_count: int = 0
+    event_inference: str = ""
+    audit_issues: list[str] = field(default_factory=list)
+    standards_evidence: list[dict[str, str]] = field(default_factory=list)
+    ledger_evidence: list[dict[str, str]] = field(default_factory=list)
     version: int = 1
     id: UUID = field(default_factory=uuid4)
 

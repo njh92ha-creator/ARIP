@@ -7,12 +7,40 @@ from typing import Any, Protocol
 
 from app.core.config import settings
 
-KIFRS_EVENT_ANALYSIS_PROMPT = """너는 K-IFRS 시니어 수준의 전문가다.
+KIFRS_EVENT_ANALYSIS_PROMPT = """# Role
+너는 K-IFRS 시니어 수준의 회계 전문가다.
+
+# Request
+회계 감사인으로써, 감사 이슈를 도출하라.
 총계정원장을 전표번호 단위로 분석하되, 동일 전표번호 안의 행만 하나의 거래로 묶어라. 다른 전표번호의 행을 섞거나 거래를 합산하지 마라.
-각 거래에서 계정명·계정코드, 적요, 차변·대변, 금액을 대조하여 회계처리를 추론하고, 가능한 분류·인식·측정·표시·공시 쟁점을 먼저 식별하라.
-회계사건 추론과 감사리스크 판단은 전표 사실과 네 K-IFRS·IFRIC 전문 지식으로 수행하라. 기준서 청크 검색이나 인용은 이 분석에 사용하지 않는다.
-전표만으로 결론을 낼 수 없거나 직접 근거 청크가 없더라도 이슈를 버리지 마라. 오류라고 단정하지 않고, 확인이 필요한 사실을 missingFacts에 구체적으로 적고 담당자 검토 질문과 권장 증빙을 작성하라.
-riskSummary는 한국어로 관찰된 거래 사실, 회계처리 가설, 검토 필요 사유, 판단 한계를 구체적으로 서술하라."""
+
+# Output
+결과물은 다음과 같이 도출한다.
+1. 관련 계정
+   - 해당 회계처리의 대표 계정을 relatedAccounts에 작성한다.
+2. 원장 전표 수
+   - eventFacts.sameTypeVoucherCount 값을 voucherCount에 그대로 작성한다.
+3. 분석 결과
+   - eventInference에 회계전표의 금액, 전표 일자, 적요, 계정 등을 고려하여 추론한 회계사건을 작성한다.
+   - auditIssues에 추론된 회계사건으로 예상되는 회계감사 이슈사항을 작성한다.
+   - riskSummary에는 회계사건 추론, 회계감사 이슈, 검토 필요 사유와 판단 한계를 한국어로 모두 서술한다.
+4. 검토질문
+   - expectedQuestions에 분석 결과의 회계감사 이슈사항을 해소하기 위해 사용자가 확인해야 할 사항을 질문으로 작성한다.
+5. 권장 증빙
+   - evidenceChecklist에 검토질문의 근거를 확인할 수 있는 적격 증빙을 작성한다.
+6. 기준서 검색 근거
+   - standardsEvidence에 분석 결과의 회계감사 이슈 도출에 사용된 근거만 작성한다.
+   - K-IFRS 근거에는 문단 번호와 본문 내용을 포함한다.
+   - 한국회계기준원 정규 질의 문답과 IFRIC 근거에는 URL을 포함한다.
+7. 원장근거
+   - ledgerEvidence에 eventFacts.journalLines의 해당 회계전표 내역만 요약 표시한다. 입력에 없는 전표 사실을 추가하지 마라.
+
+# 제한 사항
+- 근거로써 확인되는 K-IFRS는 임의 생성할 수 없다.
+- 근거로써 확인되는 한국회계기준원 정규 질의 문답 및 URL은 임의 생성할 수 없다.
+- 근거로써 확인되는 IFRIC 및 URL은 임의 생성할 수 없다.
+- 확인할 수 없는 기준서·질의문답·IFRIC 근거는 standardsEvidence에 넣지 마라.
+- 오류를 확정하지 말고, 전표만으로 판단할 수 없는 사실은 missingFacts에 구체적으로 작성하라."""
 
 
 RISK_ANALYSIS_SCHEMA = {
@@ -21,22 +49,63 @@ RISK_ANALYSIS_SCHEMA = {
     "properties": {
         "riskSummary": {"type": "string"},
         "issueTypes": {"type": "array", "items": {"type": "string"}},
+        "relatedAccounts": {"type": "array", "items": {"type": "string"}},
+        "voucherCount": {"type": "integer", "minimum": 0},
+        "eventInference": {"type": "string"},
+        "auditIssues": {"type": "array", "items": {"type": "string"}},
         "expectedQuestions": {"type": "array", "items": {"type": "string"}},
         "evidenceChecklist": {"type": "array", "items": {"type": "string"}},
         "responseGuidance": {"type": "array", "items": {"type": "string"}},
         "referenceIds": {"type": "array", "items": {"type": "string"}},
         "missingFacts": {"type": "array", "items": {"type": "string"}},
         "uncertainty": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH"]},
+        "standardsEvidence": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "source": {"type": "string", "enum": ["K-IFRS", "KASB_QA", "IFRIC"]},
+                    "title": {"type": "string"},
+                    "paragraph": {"type": "string"},
+                    "excerpt": {"type": "string"},
+                    "url": {"type": "string"},
+                },
+                "required": ["source", "title", "paragraph", "excerpt", "url"],
+            },
+        },
+        "ledgerEvidence": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "documentNumber": {"type": "string"},
+                    "postingDate": {"type": "string"},
+                    "accountName": {"type": "string"},
+                    "debitCredit": {"type": "string"},
+                    "amount": {"type": "string"},
+                    "description": {"type": "string"},
+                },
+                "required": ["documentNumber", "postingDate", "accountName", "debitCredit", "amount", "description"],
+            },
+        },
     },
     "required": [
         "riskSummary",
         "issueTypes",
+        "relatedAccounts",
+        "voucherCount",
+        "eventInference",
+        "auditIssues",
         "expectedQuestions",
         "evidenceChecklist",
         "responseGuidance",
         "referenceIds",
         "missingFacts",
         "uncertainty",
+        "standardsEvidence",
+        "ledgerEvidence",
     ],
 }
 
@@ -78,13 +147,6 @@ class OpenAIAnalysisProvider:
             input=[
                 {"role": "system", "content": KIFRS_EVENT_ANALYSIS_PROMPT},
                 {
-                    "role": "system",
-                    "content": (
-                        "당신은 감사 리스크 검토 보조자다. 오류를 확정하지 말고, "
-                        "제공된 승인 Reference만 근거로 검토사항을 구조화한다."
-                    ),
-                },
-                {
                     "role": "user",
                     "content": json.dumps(
                         {
@@ -92,7 +154,7 @@ class OpenAIAnalysisProvider:
                             "retrievedReferenceChunks": references,
                             "analysisPolicy": {
                                 "doNotConcludeError": True,
-                                "issueFirstPolicy": "Identify transaction-specific accounting hypotheses from the transaction facts using your K-IFRS and IFRIC expertise. Do not conclude that an error exists; list facts required to confirm or reject each hypothesis.",
+                                "issueFirstPolicy": "Follow the Korean system prompt. Analyze transaction-specific accounting hypotheses from the transaction facts. Do not conclude that an error exists; list facts required to confirm or reject each hypothesis.",
                                 "referenceIdsBehavior": "RAG retrieval is disabled for this analysis. Return an empty referenceIds array.",
                             },
                         },
@@ -146,7 +208,7 @@ class NvidiaAnalysisProvider:
             max_tokens=600,
             messages=[
                 {"role": "system", "content": KIFRS_EVENT_ANALYSIS_PROMPT},
-                {"role": "user", "content": json.dumps({"eventFacts": event_facts, "policy": "Analyze transaction-specific accounting hypotheses with your K-IFRS and IFRIC expertise. RAG retrieval is disabled; return an empty referenceIds array. Do not state that an error exists without evidence, and identify missingFacts, review questions, and recommended evidence."}, ensure_ascii=False)},
+                {"role": "user", "content": json.dumps({"eventFacts": event_facts, "policy": "Follow the Korean system prompt. RAG retrieval is disabled; return an empty referenceIds array. Do not state that an error exists without evidence, and identify missingFacts, review questions, recommended evidence, and only non-fabricated standards evidence."}, ensure_ascii=False)},
             ],
         )
         content = completion.choices[0].message.content or ""

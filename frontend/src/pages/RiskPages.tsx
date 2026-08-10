@@ -97,14 +97,15 @@ export function RiskListPage() {
   </Box>
 }
 
-function AnalysisInput({ lines, event }: { lines: JournalLine[]; event?: AccountingEvent }) {
-  const accounts = [...new Set(lines.map((line) => line.account_name || line.account_code).filter(Boolean))]
+function AnalysisInput({ lines, event, pkg }: { lines: JournalLine[]; event?: AccountingEvent; pkg?: Risk['package'] }) {
+  const accounts = pkg?.related_accounts?.length ? pkg.related_accounts : [...new Set(lines.map((line) => line.account_name || line.account_code).filter(Boolean))]
+  const voucherCount = pkg?.voucher_count ?? lines.length
   return <Card sx={cardSx}><CardContent sx={{ p: 2.5 }}>
     <SectionTitle>분석 입력 근거</SectionTitle>
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3,1fr)' }, gap: 2, mt: 2.25 }}>
       <Box><Typography sx={labelSx}>연결 이벤트</Typography><Typography sx={{ mt: .5, fontWeight: 700 }}>{event?.title || '-'}</Typography></Box>
       <Box><Typography sx={labelSx}>관련 계정</Typography><Typography sx={{ mt: .5, fontWeight: 700 }}>{accounts.join(', ') || '-'}</Typography></Box>
-      <Box><Typography sx={labelSx}>원장 전표 수</Typography><Typography sx={{ mt: .5, fontWeight: 700 }}>{lines.length}건</Typography></Box>
+      <Box><Typography sx={labelSx}>원장 전표 수</Typography><Typography sx={{ mt: .5, fontWeight: 700 }}>{voucherCount}건</Typography></Box>
     </Box>
   </CardContent></Card>
 }
@@ -124,15 +125,22 @@ export function RiskDetailPage() {
     </Stack>
     <Stack spacing={3}>
       <RiskReviewDecisionCard risk={risk} />
-      <AnalysisInput lines={lines} event={risk.event} />
-      <Card sx={cardSx}><CardContent sx={{ p: 2.5 }}><SectionTitle>분석 결과</SectionTitle><Typography sx={{ mt: 2, lineHeight: 1.8 }}>{risk.statement}</Typography><Typography sx={{ mt: 2, color: 'text.secondary', lineHeight: 1.7 }}>{pkg?.summary}</Typography></CardContent></Card>
+      <AnalysisInput lines={lines} event={risk.event} pkg={pkg} />
+      <Card sx={cardSx}><CardContent sx={{ p: 2.5 }}><SectionTitle>분석 결과</SectionTitle>
+        <Typography sx={{ ...labelSx, mt: 2 }}>회계사건 추론</Typography>
+        <Typography sx={{ mt: .5, lineHeight: 1.8 }}>{pkg?.event_inference || '-'}</Typography>
+        <Typography sx={{ ...labelSx, mt: 2 }}>회계감사 이슈</Typography>
+        <Stack spacing={1} sx={{ mt: .75 }}>{pkg?.audit_issues?.length ? pkg.audit_issues.map((item) => <Stack key={item} direction="row" spacing={1}><WarningAmberRoundedIcon color="warning" fontSize="small" /><Typography fontSize={14}>{item}</Typography></Stack>) : <Empty text="생성된 회계감사 이슈가 없습니다." />}</Stack>
+        <Typography sx={{ ...labelSx, mt: 2 }}>종합 판단</Typography>
+        <Typography sx={{ mt: .5, color: 'text.secondary', lineHeight: 1.7 }}>{pkg?.summary || risk.statement}</Typography>
+      </CardContent></Card>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'repeat(2,1fr)' }, gap: 3 }}>
         <Card sx={cardSx}><CardContent sx={{ p: 2.5 }}><SectionTitle>검토 질문</SectionTitle><Stack spacing={1.25} sx={{ mt: 2 }}>{pkg?.expected_questions?.length ? pkg.expected_questions.map((item) => <Stack key={item} direction="row" spacing={1}><WarningAmberRoundedIcon color="warning" fontSize="small" /><Typography fontSize={14}>{item}</Typography></Stack>) : <Empty text="생성된 검토 질문이 없습니다." />}</Stack></CardContent></Card>
         <Card sx={cardSx}><CardContent sx={{ p: 2.5 }}><SectionTitle>권장 증빙</SectionTitle><Stack spacing={1.25} sx={{ mt: 2 }}>{pkg?.evidence_checklist?.length ? pkg.evidence_checklist.map((item) => <Stack key={item} direction="row" spacing={1}><CheckCircleOutlineRoundedIcon color="success" fontSize="small" /><Typography fontSize={14}>{item}</Typography></Stack>) : <Empty text="생성된 증빙 요청이 없습니다." />}</Stack></CardContent></Card>
       </Box>
-      <Card sx={cardSx}><CardContent sx={{ p: 2.5 }}><SectionTitle>기준서 검색 근거</SectionTitle><Stack spacing={1.25} sx={{ mt: 2 }}>{pkg?.references?.length ? pkg.references.map((reference, index) => <Alert key={`${reference.code}-${index}`} severity="info"><Typography fontWeight={700}>{reference.code || '기준서 문단'}</Typography>{reference.excerpt && <Typography variant="body2" sx={{ mt: .5, whiteSpace: 'pre-wrap' }}>{reference.excerpt}</Typography>}</Alert>) : <Empty text="이번 이슈에 직접 적용된 기준서 검색 문단이 없습니다." />}</Stack></CardContent></Card>
+      <Card sx={cardSx}><CardContent sx={{ p: 2.5 }}><SectionTitle>기준서 검색 근거</SectionTitle><Stack spacing={1.25} sx={{ mt: 2 }}>{pkg?.standards_evidence?.length ? pkg.standards_evidence.map((reference, index) => <Alert key={`${reference.source}-${reference.title}-${index}`} severity="info"><Typography fontWeight={700}>{reference.source} · {reference.title}{reference.paragraph ? ` · ${reference.paragraph}` : ''}</Typography>{reference.excerpt && <Typography variant="body2" sx={{ mt: .5, whiteSpace: 'pre-wrap' }}>{reference.excerpt}</Typography>}{reference.url && <Typography component="a" href={reference.url} target="_blank" rel="noreferrer" variant="body2" sx={{ display: 'block', mt: .5, color: primary }}>{reference.url}</Typography>}</Alert>) : <Empty text="확인 가능한 기준서·질의문답·IFRIC 근거가 없습니다." />}</Stack></CardContent></Card>
       <Card sx={cardSx}><CardContent sx={{ p: 2.5 }}><SectionTitle>교차 분석 결과</SectionTitle><Stack spacing={1.25} sx={{ mt: 2 }}>{findings.length ? findings.map((finding) => <Alert key={finding.id} severity="warning"><Typography fontWeight={700}>{finding.title}</Typography><Typography variant="body2" sx={{ mt: .5 }}>{finding.statement}</Typography></Alert>) : <Empty text="교차 분석에서 추가로 식별된 항목이 없습니다." />}</Stack></CardContent></Card>
-      <Card sx={cardSx}><CardContent sx={{ p: 2.5 }}><SectionTitle>원장 근거</SectionTitle><Table size="small" sx={{ mt: 2 }}><TableHead><TableRow><TableCell>전표</TableCell><TableCell>계정</TableCell><TableCell>전기일</TableCell><TableCell align="right">금액</TableCell></TableRow></TableHead><TableBody>{lines.length ? lines.map((line) => <TableRow key={line.id}><TableCell>{line.document_number || '-'}</TableCell><TableCell>{line.account_name || line.account_code || '-'}</TableCell><TableCell>{line.posting_date || '-'}</TableCell><TableCell align="right">{Number(line.local_amount || 0).toLocaleString()}</TableCell></TableRow>) : <TableRow><TableCell colSpan={4} align="center">연결된 원장 행이 없습니다.</TableCell></TableRow>}</TableBody></Table></CardContent></Card>
+      <Card sx={cardSx}><CardContent sx={{ p: 2.5 }}><SectionTitle>원장 근거</SectionTitle><Table size="small" sx={{ mt: 2 }}><TableHead><TableRow><TableCell>전표</TableCell><TableCell>계정</TableCell><TableCell>전기일</TableCell><TableCell>차대변</TableCell><TableCell align="right">금액</TableCell><TableCell>적요</TableCell></TableRow></TableHead><TableBody>{pkg?.ledger_evidence?.length ? pkg.ledger_evidence.map((line, index) => <TableRow key={`${line.documentNumber}-${line.accountName}-${index}`}><TableCell>{line.documentNumber || '-'}</TableCell><TableCell>{line.accountName || '-'}</TableCell><TableCell>{line.postingDate || '-'}</TableCell><TableCell>{line.debitCredit || '-'}</TableCell><TableCell align="right">{Number(line.amount || 0).toLocaleString()}</TableCell><TableCell>{line.description || '-'}</TableCell></TableRow>) : lines.length ? lines.map((line) => <TableRow key={line.id}><TableCell>{line.document_number || '-'}</TableCell><TableCell>{line.account_name || line.account_code || '-'}</TableCell><TableCell>{line.posting_date || '-'}</TableCell><TableCell>-</TableCell><TableCell align="right">{Number(line.local_amount || 0).toLocaleString()}</TableCell><TableCell>-</TableCell></TableRow>) : <TableRow><TableCell colSpan={6} align="center">연결된 원장 행이 없습니다.</TableCell></TableRow>}</TableBody></Table></CardContent></Card>
     </Stack>
   </Box>
 }
