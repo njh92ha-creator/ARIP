@@ -149,19 +149,29 @@ def index_document(
         api_key=api_key, embedding_model=embedding_model,
     )
     document_id = uuid4()
-    with engine.begin() as connection:
-        existing = connection.execute(text("select id from knowledge.document where candidate_id = :candidate_id"), {"candidate_id": candidate_id}).scalar_one_or_none()
-        if existing:
-            connection.execute(text("delete from knowledge.document where id = :id"), {"id": existing})
-        connection.execute(text("""
+    try:
+        with engine.begin() as connection:
+            document_id = connection.execute(text("""
             insert into knowledge.document (id, candidate_id, company_id, title, content_hash, approval_status, embedding_model, page_count, indexed_at)
             values (:id, :candidate_id, :company_id, :title, :content_hash, 'APPROVED', :embedding_model, :page_count, :indexed_at)
-        """), {"id": document_id, "candidate_id": candidate_id, "company_id": company_id, "title": filename, "content_hash": content_hash, "embedding_model": model, "page_count": len(pages), "indexed_at": datetime.now(timezone.utc)})
-        for chunk, embedding in zip(chunks, embeddings, strict=True):
-            connection.execute(text("""
-                insert into knowledge.chunk (id, document_id, content, page_number, locator, embedding)
-                values (:id, :document_id, :content, :page_number, :locator, cast(:embedding as extensions.vector))
-            """), {"id": uuid4(), "document_id": document_id, "content": chunk["content"], "page_number": chunk["page"], "locator": chunk["locator"], "embedding": _vector_literal(embedding)})
+            on conflict (candidate_id) do update set
+                company_id = excluded.company_id,
+                title = excluded.title,
+                content_hash = excluded.content_hash,
+                approval_status = excluded.approval_status,
+                embedding_model = excluded.embedding_model,
+                page_count = excluded.page_count,
+                indexed_at = excluded.indexed_at
+            returning id
+            """), {"id": document_id, "candidate_id": candidate_id, "company_id": company_id, "title": filename, "content_hash": content_hash, "embedding_model": model, "page_count": len(pages), "indexed_at": datetime.now(timezone.utc)}).scalar_one()
+            connection.execute(text("delete from knowledge.chunk where document_id = :id"), {"id": document_id})
+            for chunk, embedding in zip(chunks, embeddings, strict=True):
+                connection.execute(text("""
+                    insert into knowledge.chunk (id, document_id, content, page_number, locator, embedding)
+                    values (:id, :document_id, :content, :page_number, :locator, cast(:embedding as extensions.vector))
+                """), {"id": uuid4(), "document_id": document_id, "content": chunk["content"], "page_number": chunk["page"], "locator": chunk["locator"], "embedding": _vector_literal(embedding)})
+    except Exception as exc:
+        raise KnowledgeIndexError("기준서 인덱스를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.") from exc
     return {"documentId": str(document_id), "chunkCount": len(chunks), "pageCount": len(pages), "embeddingModel": model}
 
 

@@ -476,25 +476,11 @@ async def upload_knowledge_documents(
         content = await upload.read()
         digest = hashlib.sha256(content).hexdigest()
         candidate_id = str(uuid4())
-        try:
-            indexed = _index_knowledge_candidate(
-                candidate_id=candidate_id, company_id=company_id, filename=name,
-                content=content, content_hash=digest,
-            )
-        except KnowledgeIndexError as exc:
-            options = _ai_runtime_options()
-            key_env = options["ai_key_env"] or "OPENAI_API_KEY"
-            # Keep the original file safely available for a later explicit
-            # reindex when an administrator has not configured AI yet.  Parsing
-            # and embedding errors with an active AI connection remain blocking.
-            if options["external_ai_enabled"] and os.getenv(key_env):
-                raise HTTPException(422, str(exc)) from exc
-            indexed = {"ragStatus": "NOT_INDEXED", "ragError": str(exc), "chunkCount": 0, "pageCount": 0}
         knowledge_candidates[candidate_id] = {
             "id": candidate_id, "companyId": str(company_id),
             "relativePath": name, "contentHash": digest,
-            "status": "APPROVED", "ragEligible": True,
-            "ragStatus": indexed.pop("ragStatus", "INDEXED"), **indexed,
+            "status": "APPROVED", "ragEligible": False,
+            "ragStatus": "NOT_INDEXED", "chunkCount": 0, "pageCount": 0,
         }
         repository.save_runtime_setting(
             f"knowledge-document:{candidate_id}",
@@ -531,10 +517,11 @@ def reindex_knowledge_documents(
                 filename=str(stored.get("filename") or candidate.get("relativePath") or "document"),
                 content=stored["content"], content_hash=str(stored.get("contentHash") or candidate.get("contentHash") or ""),
             )
-            candidate.update({"ragStatus": "INDEXED", **result})
+            candidate.update({"ragStatus": "INDEXED", "ragEligible": True, **result})
             indexed += 1
         except KnowledgeIndexError as exc:
             candidate["ragStatus"] = "FAILED"
+            candidate["ragEligible"] = False
             candidate["ragError"] = str(exc)
             failures.append({"name": str(candidate.get("relativePath", candidate_id)), "reason": str(exc)})
     _save_knowledge_candidates()

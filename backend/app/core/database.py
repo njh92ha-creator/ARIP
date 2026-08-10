@@ -9,7 +9,14 @@ def _url() -> str:
     return url.replace("postgresql://", "postgresql+psycopg://", 1)
 
 
-engine = create_engine(_url(), pool_pre_ping=True, pool_recycle=1800)
+# Supabase Transaction Pooler(PgBouncer)는 세션 간 prepared statement를 유지하지
+# 않으므로 psycopg의 자동 prepared statement를 끈다.
+engine = create_engine(
+    _url(),
+    pool_pre_ping=True,
+    pool_recycle=1800,
+    connect_args={"prepare_threshold": None},
+)
 
 
 def check_database() -> tuple[bool, str | None]:

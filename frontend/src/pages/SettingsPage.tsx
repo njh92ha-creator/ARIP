@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   CardContent,
+  Checkbox,
   Chip,
   Dialog,
   DialogActions,
@@ -1722,6 +1723,7 @@ function KnowledgeSettings({ company }: { company?: Company }) {
   const [error, setError] = useState("");
   const [uploadDialogMessage, setUploadDialogMessage] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
+  const [selectedKnowledgeIds, setSelectedKnowledgeIds] = useState<Set<string>>(new Set());
   const runtime = useQuery({
     queryKey: ["runtime-settings-v2"],
     queryFn: async () => (await api.get("/settings/runtime")).data,
@@ -1739,12 +1741,18 @@ function KnowledgeSettings({ company }: { company?: Company }) {
   const approvedCount = candidateItems.filter((item) => item.status === "APPROVED").length;
   const pendingCount = candidateItems.filter((item) => item.status === "PENDING").length;
   const ragAvailableCount = candidateItems.filter((item) => item.ragEligible).length;
+  const selectedKnowledgeItems = candidateItems.filter((item) => selectedKnowledgeIds.has(item.id));
   useEffect(() => {
     const source = runtime.data?.knowledgeSources?.find(
       (item: { company_id?: string }) => item.company_id === company?.id,
     );
     if (source?.root_directory) setRootDirectory(String(source.root_directory));
   }, [runtime.data, company?.id]);
+  useEffect(() => {
+    setSelectedKnowledgeIds((current) => new Set(
+      [...current].filter((id) => candidateItems.some((item) => item.id === id)),
+    ));
+  }, [candidateItems]);
   if (!company)
     return (
       <Alert severity="info">
@@ -1781,6 +1789,7 @@ function KnowledgeSettings({ company }: { company?: Company }) {
       setMessage(
         `${response.data.uploaded}개 파일을 업로드하고 지식베이스에 등록했습니다.`,
       );
+      setSelectedFiles(null);
       await candidates.refetch();
     } catch (caught) {
       const detail = (caught as { response?: { data?: { detail?: string } } })
@@ -1808,13 +1817,15 @@ function KnowledgeSettings({ company }: { company?: Company }) {
     }
   };
   const reindexDocuments = async () => {
+    if (!selectedKnowledgeItems.length) return;
     setError("");
     setMessage("");
     try {
+      const params = new URLSearchParams({ company_id: company.id });
+      selectedKnowledgeItems.forEach((item) => params.append("candidate_ids", item.id));
       const response = await api.post(
-        "/settings/knowledge-sources/local-standards/reindex",
+        `/settings/knowledge-sources/local-standards/reindex?${params.toString()}`,
         null,
-        { params: { company_id: company.id } },
       );
       const failed = response.data.failures?.length ?? 0;
       setMessage(`RAG 인덱스 생성 완료: ${response.data.indexed}건${failed ? `, 실패 ${failed}건` : ""}`);
@@ -1923,8 +1934,8 @@ function KnowledgeSettings({ company }: { company?: Company }) {
                 업로드
                 {selectedFiles?.length ? ` (${selectedFiles.length})` : ""}
               </Button>
-              <Button variant="outlined" onClick={reindexDocuments} disabled={!candidateItems.length}>
-                RAG 인덱스 생성
+              <Button variant="outlined" onClick={reindexDocuments} disabled={!selectedKnowledgeItems.length}>
+                선택 문서 RAG 인덱스 생성 ({selectedKnowledgeItems.length})
               </Button>
             </Stack>
           </Box>
@@ -1965,7 +1976,21 @@ function KnowledgeSettings({ company }: { company?: Company }) {
               {error}
             </Alert>
           )}
-          <KnowledgeTable documents={candidateItems} />
+          <KnowledgeTable
+            documents={candidateItems}
+            selectedIds={selectedKnowledgeIds}
+            onToggle={(id) => setSelectedKnowledgeIds((current) => {
+              const next = new Set(current);
+              if (next.has(id)) next.delete(id);
+              else next.add(id);
+              return next;
+            })}
+            onToggleAll={() => setSelectedKnowledgeIds((current) => (
+              current.size === candidateItems.length
+                ? new Set()
+                : new Set(candidateItems.map((item) => item.id))
+            ))}
+          />
         </CardContent>
       </Card>
       <Dialog open={Boolean(uploadDialogMessage)} onClose={() => setUploadDialogMessage("")}> 
@@ -2049,7 +2074,17 @@ type KnowledgeDocument = {
   chunkCount?: number;
 };
 
-function KnowledgeTable({ documents }: { documents: KnowledgeDocument[] }) {
+function KnowledgeTable({
+  documents,
+  selectedIds,
+  onToggle,
+  onToggleAll,
+}: {
+  documents: KnowledgeDocument[];
+  selectedIds: Set<string>;
+  onToggle: (id: string) => void;
+  onToggleAll: () => void;
+}) {
   return (
     <Box sx={{ mt: 3.5 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
@@ -2064,6 +2099,15 @@ function KnowledgeTable({ documents }: { documents: KnowledgeDocument[] }) {
         <Table size="small">
           <TableHead>
             <TableRow>
+              <TableCell padding="checkbox">
+                <Checkbox
+                  size="small"
+                  checked={documents.length > 0 && selectedIds.size === documents.length}
+                  indeterminate={selectedIds.size > 0 && selectedIds.size < documents.length}
+                  onChange={onToggleAll}
+                  inputProps={{ "aria-label": "모든 문서 선택" }}
+                />
+              </TableCell>
               {["문서명", "유형", "상태", "RAG 인덱스"].map((item) => (
                 <TableCell key={item} align={item === "문서명" || item === "유형" ? "left" : "center"}>
                   {item}
@@ -2074,7 +2118,7 @@ function KnowledgeTable({ documents }: { documents: KnowledgeDocument[] }) {
           <TableBody>
             {documents.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} align="center" sx={{ py: 4, color: colors.secondary }}>
+                <TableCell colSpan={5} align="center" sx={{ py: 4, color: colors.secondary }}>
                   업로드된 문서가 없습니다.
                 </TableCell>
               </TableRow>
@@ -2084,6 +2128,14 @@ function KnowledgeTable({ documents }: { documents: KnowledgeDocument[] }) {
                 const approved = document.status === "APPROVED";
                 return (
                   <TableRow key={document.id}>
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        size="small"
+                        checked={selectedIds.has(document.id)}
+                        onChange={() => onToggle(document.id)}
+                        inputProps={{ "aria-label": `${document.relativePath} 선택` }}
+                      />
+                    </TableCell>
                     <TableCell>
                       <Stack direction="row" spacing={1.5} alignItems="center">
                         <PictureAsPdfOutlined sx={{ color: colors.primary }} />

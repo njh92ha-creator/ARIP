@@ -30,7 +30,7 @@ class RuntimePersistenceTests(unittest.TestCase):
             repository.get_runtime_setting("knowledge:document:1"), document
         )
 
-    def test_knowledge_upload_does_not_require_an_application_directory(self):
+    def test_knowledge_upload_waits_for_explicit_rag_indexing(self):
         company_id = uuid4()
         client = TestClient(app)
 
@@ -48,7 +48,8 @@ class RuntimePersistenceTests(unittest.TestCase):
         ).json()
         self.assertEqual(candidates[0]["relativePath"], "audit-guide.txt")
         self.assertEqual(candidates[0]["status"], "APPROVED")
-        self.assertTrue(candidates[0]["ragEligible"])
+        self.assertFalse(candidates[0]["ragEligible"])
+        self.assertEqual(candidates[0]["ragStatus"], "NOT_INDEXED")
 
         duplicate = client.post(
             "/api/v1/settings/knowledge-sources/local-standards/upload",
