@@ -244,6 +244,49 @@ class RiskMemoryEntry:
 
 
 @dataclass(slots=True)
+class RiskReviewCase:
+    """Immutable-at-transfer review workspace for a source risk analysis."""
+
+    company_id: UUID
+    source_risk_id: UUID
+    risk_code: str
+    title: str
+    statement: str
+    level: RiskLevel
+    score: int
+    route: AnalysisRoute
+    package: RiskPackage
+    review_decision: str
+    severity: str
+    materiality_level: str = "LOW"
+    closing_analysis_set_id: UUID | None = None
+    cross_finding_ids: list[UUID] = field(default_factory=list)
+    status: str = "OPEN"
+    transferred_at: datetime = field(default_factory=utcnow)
+    id: UUID = field(default_factory=uuid4)
+
+
+@dataclass(slots=True)
+class RiskReviewAnswer:
+    review_case_id: UUID
+    question: str
+    answer: str
+    updated_at: datetime = field(default_factory=utcnow)
+    id: UUID = field(default_factory=uuid4)
+
+
+@dataclass(slots=True)
+class RiskReviewAttachment:
+    review_case_id: UUID
+    filename: str
+    content_type: str
+    size_bytes: int
+    content: bytes
+    created_at: datetime = field(default_factory=utcnow)
+    id: UUID = field(default_factory=uuid4)
+
+
+@dataclass(slots=True)
 class AnalysisEventResult:
     company_id: UUID
     event_id: UUID

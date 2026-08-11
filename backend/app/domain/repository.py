@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from copy import deepcopy
 from dataclasses import asdict
 from threading import RLock
 from typing import Any, TypeVar
@@ -22,11 +23,15 @@ from .models import (
     MaterialityProfile,
     Risk,
     RiskPackage,
+    RiskReviewAnswer,
+    RiskReviewAttachment,
+    RiskReviewCase,
     RiskMemoryEntry,
     SettlementBalance,
     VarianceObservation,
     VarianceException,
     VarianceProfile,
+    utcnow,
 )
 
 
@@ -55,6 +60,17 @@ def hydrate_legacy_object(obj: Any) -> None:
         for field_name, default in defaults.items():
             if not hasattr(package, field_name):
                 object.__setattr__(package, field_name, default)
+    if isinstance(obj, RiskReviewCase):
+        defaults = {
+            "materiality_level": "LOW",
+            "closing_analysis_set_id": None,
+            "cross_finding_ids": [],
+            "status": "OPEN",
+        }
+        for field_name, default in defaults.items():
+            if not hasattr(obj, field_name):
+                object.__setattr__(obj, field_name, default)
+        hydrate_legacy_object(obj.package)
 
 T = TypeVar("T")
 
@@ -75,6 +91,9 @@ class InMemoryRepository:
         self.events: dict[UUID, AccountingEvent] = {}
         self.analysis_event_results: dict[UUID, AnalysisEventResult] = {}
         self.risks: dict[UUID, Risk] = {}
+        self.risk_review_cases: dict[UUID, RiskReviewCase] = {}
+        self.risk_review_answers: dict[UUID, RiskReviewAnswer] = {}
+        self.risk_review_attachments: dict[UUID, RiskReviewAttachment] = {}
         self.risk_memory: dict[UUID, list[RiskMemoryEntry]] = defaultdict(list)
         self.variance_observations: dict[UUID, VarianceObservation] = {}
         self.audit_log: list[AuditLogEntry] = []
@@ -142,6 +161,9 @@ class InMemoryRepository:
                         "AccountingEvent": "events",
                         "AnalysisEventResult": "analysis_event_results",
                         "Risk": "risks",
+                        "RiskReviewCase": "risk_review_cases",
+                        "RiskReviewAnswer": "risk_review_answers",
+                        "RiskReviewAttachment": "risk_review_attachments",
                         "VarianceObservation": "variance_observations",
                     }.get(collection)
                     store = getattr(self, store_name, None) if store_name else None
@@ -240,6 +262,9 @@ class InMemoryRepository:
                 AccountingEvent: self.events,
                 AnalysisEventResult: self.analysis_event_results,
                 Risk: self.risks,
+                RiskReviewCase: self.risk_review_cases,
+                RiskReviewAnswer: self.risk_review_answers,
+                RiskReviewAttachment: self.risk_review_attachments,
                 VarianceObservation: self.variance_observations,
             }
             store = stores[type(obj)]
@@ -434,6 +459,118 @@ class InMemoryRepository:
                 self.last_db_error = type(exc).__name__
             return risk
 
+    def review_case_for_source_risk(self, source_risk_id: UUID) -> RiskReviewCase | None:
+        with self._lock:
+            return next(
+                (
+                    case
+                    for case in self.risk_review_cases.values()
+                    if case.source_risk_id == source_risk_id
+                ),
+                None,
+            )
+
+    def create_review_case(
+        self, source_risk: Risk, *, review_decision: str, severity: str
+    ) -> RiskReviewCase:
+        """Create one review case per source risk, preserving its transfer-time snapshot."""
+        with self._lock:
+            existing = self.review_case_for_source_risk(source_risk.id)
+            if existing is not None:
+                return existing
+            if review_decision not in {"CHECK", "PENDING"}:
+                raise ValueError("review decision must be CHECK or PENDING")
+            if severity not in {"HIGH", "MEDIUM", "LOW"}:
+                raise ValueError("severity must be HIGH, MEDIUM, or LOW")
+            review_case = RiskReviewCase(
+                company_id=source_risk.company_id,
+                source_risk_id=source_risk.id,
+                risk_code=source_risk.risk_code,
+                title=source_risk.title,
+                statement=source_risk.statement,
+                level=source_risk.level,
+                score=source_risk.score,
+                route=source_risk.route,
+                package=deepcopy(source_risk.package),
+                review_decision=review_decision,
+                severity=severity,
+                materiality_level=source_risk.materiality_level,
+                closing_analysis_set_id=source_risk.closing_analysis_set_id,
+                cross_finding_ids=deepcopy(source_risk.cross_finding_ids),
+            )
+            return self.save(review_case)
+
+    def answers_for_review_case(self, review_case_id: UUID) -> list[RiskReviewAnswer]:
+        with self._lock:
+            return [
+                answer
+                for answer in self.risk_review_answers.values()
+                if answer.review_case_id == review_case_id
+            ]
+
+    def upsert_review_answer(
+        self, review_case_id: UUID, *, question: str, answer: str
+    ) -> RiskReviewAnswer:
+        with self._lock:
+            if review_case_id not in self.risk_review_cases:
+                raise KeyError(review_case_id)
+            existing = next(
+                (
+                    item
+                    for item in self.risk_review_answers.values()
+                    if item.review_case_id == review_case_id and item.question == question
+                ),
+                None,
+            )
+            if existing is None:
+                existing = RiskReviewAnswer(
+                    review_case_id=review_case_id,
+                    question=question,
+                    answer=answer,
+                )
+            else:
+                existing.answer = answer
+                existing.updated_at = utcnow()
+            return self.save(existing)
+
+    def attachments_for_review_case(self, review_case_id: UUID) -> list[RiskReviewAttachment]:
+        with self._lock:
+            return [
+                attachment
+                for attachment in self.risk_review_attachments.values()
+                if attachment.review_case_id == review_case_id
+            ]
+
+    def add_review_attachment(
+        self, attachment: RiskReviewAttachment
+    ) -> RiskReviewAttachment:
+        with self._lock:
+            if attachment.review_case_id not in self.risk_review_cases:
+                raise KeyError(attachment.review_case_id)
+            if len(self.attachments_for_review_case(attachment.review_case_id)) >= 10:
+                raise ValueError("a review case cannot have more than 10 attachments")
+            return self.save(attachment)
+
+    def remove_review_attachment(
+        self, review_case_id: UUID, attachment_id: UUID
+    ) -> RiskReviewAttachment:
+        with self._lock:
+            attachment = self.risk_review_attachments.get(attachment_id)
+            if attachment is None or attachment.review_case_id != review_case_id:
+                raise KeyError(attachment_id)
+            self.risk_review_attachments.pop(attachment_id)
+            if self._db_ready:
+                try:
+                    with engine.begin() as connection:
+                        connection.execute(
+                            text("delete from arip_state where collection = :collection and object_id = :object_id"),
+                            {"collection": "RiskReviewAttachment", "object_id": str(attachment_id)},
+                        )
+                except Exception as exc:
+                    self._db_ready = False
+                    self.last_db_error = type(exc).__name__
+            return attachment
+
     def remove_company(self, company_id: UUID) -> CompanySettings:
         with self._lock:
             company = self.companies.pop(company_id, None)
@@ -449,12 +586,24 @@ class InMemoryRepository:
                 ("CrossAnalysisFinding", self.cross_analysis_findings),
                 ("AccountingEvent", self.events),
                 ("Risk", self.risks),
+                ("RiskReviewCase", self.risk_review_cases),
                 ("VarianceObservation", self.variance_observations),
             )
             removed = [("CompanySettings", str(company.id))]
+            removed_review_case_ids: set[UUID] = set()
             for collection, store in stores:
                 for object_id, item in list(store.items()):
                     if getattr(item, "company_id", None) == company_id:
+                        store.pop(object_id)
+                        removed.append((collection, str(object_id)))
+                        if collection == "RiskReviewCase":
+                            removed_review_case_ids.add(object_id)
+            for collection, store in (
+                ("RiskReviewAnswer", self.risk_review_answers),
+                ("RiskReviewAttachment", self.risk_review_attachments),
+            ):
+                for object_id, item in list(store.items()):
+                    if item.review_case_id in removed_review_case_ids:
                         store.pop(object_id)
                         removed.append((collection, str(object_id)))
             self.risk_memory = defaultdict(
@@ -532,6 +681,7 @@ class InMemoryRepository:
                 "crossAnalysisFindings": len(self.cross_analysis_findings),
                 "events": len(self.events),
                 "risks": len(self.risks),
+                "riskReviewCases": len(self.risk_review_cases),
                 "varianceObservations": len(self.variance_observations),
                 "auditEntries": len(self.audit_log),
             }
