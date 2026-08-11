@@ -310,6 +310,8 @@ class SettlementBalance:
     category: str
     amount: Decimal
     measurement_basis: str
+    current_amount: Decimal = Decimal("0")
+    prior_amount: Decimal = Decimal("0")
     closing_analysis_set_id: UUID | None = None
     id: UUID = field(default_factory=uuid4)
 

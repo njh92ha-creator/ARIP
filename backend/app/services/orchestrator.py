@@ -55,7 +55,7 @@ def process_journals(
     ai_provider: str = "openai",
     ai_key_env: str | None = None,
     embedding_model: str | None = None,
-    cross_findings: list[Any] | None = None,
+    materiality_variances: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, int]:
     for line in lines:
         repo.save(line)
@@ -73,6 +73,7 @@ def process_journals(
     reused_events = 0
     created_risks = 0
     retried_events = 0
+    skipped_by_materiality = 0
     clusters = cluster_journals(lines)
     candidates = [(cluster, construct_event(cluster)) for cluster in clusters]
     same_type_voucher_counts = {
@@ -80,6 +81,14 @@ def process_journals(
         for event_type in {candidate.event_type for _, candidate in candidates}
     }
     for cluster, candidate in candidates:
+        relevant_variances = [
+            variance
+            for account_code, variance in (materiality_variances or {}).items()
+            if any(line.account_code == account_code for line in cluster)
+        ]
+        if materiality_variances is not None and not relevant_variances:
+            skipped_by_materiality += 1
+            continue
         candidate.closing_analysis_set_id = cluster[0].closing_analysis_set_id
         prior_event = repo.event_by_hash(candidate.company_id, candidate.event_hash)
         prior_risk = (
@@ -129,24 +138,7 @@ def process_journals(
                     same_type_voucher_count=same_type_voucher_counts[event.event_type],
                 )
                 ai_stage = "build_event_facts"
-                linked_findings = [
-                    finding
-                    for finding in (cross_findings or [])
-                    if set(finding.journal_line_ids).intersection(candidate.journal_line_ids)
-                ]
-                if linked_findings:
-                    facts["crossAnalysisFindings"] = [
-                        {
-                            "id": str(finding.id),
-                            "type": finding.finding_type,
-                            "title": finding.title,
-                            "statement": finding.statement,
-                            "accountCode": finding.account_code,
-                            "amount": str(finding.amount),
-                            "metadata": finding.metadata,
-                        }
-                        for finding in linked_findings
-                    ]
+                facts["materialityVariances"] = relevant_variances
                 # Closing analysis deliberately relies on the model's K-IFRS
                 # reasoning over the transaction facts only. Uploaded knowledge
                 # documents are not retrieved or sent to the model on this path.
@@ -202,14 +194,9 @@ def process_journals(
                 risk = None
                 _save_event_result(repo, event, status="FAILED", attempts=locals().get("attempts", 1), duration_ms=locals().get("duration_ms", 0), error=exc)
         if risk:
-            linked_finding_ids = [
-                finding.id
-                for finding in (cross_findings or [])
-                if set(finding.journal_line_ids).intersection(candidate.journal_line_ids)
-            ]
             risk.closing_analysis_set_id = event.closing_analysis_set_id
-            risk.cross_finding_ids = linked_finding_ids
-            risk.package.cross_finding_ids = linked_finding_ids
+            risk.cross_finding_ids = []
+            risk.package.cross_finding_ids = []
             repo.save(risk)
             repo.append_memory(
                 RiskMemoryEntry(
@@ -241,4 +228,5 @@ def process_journals(
         "reusedPatterns": reused_events,
         "risks": created_risks,
         "retriedEvents": retried_events,
+        "skippedByMateriality": skipped_by_materiality,
     }

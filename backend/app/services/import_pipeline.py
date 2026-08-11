@@ -167,6 +167,13 @@ class SettlementRow:
     category: str
     amount: Decimal
     measurement_basis: str
+    current_amount: Decimal = Decimal("0")
+    prior_amount: Decimal = Decimal("0")
+
+    def __post_init__(self) -> None:
+        # Historical variance rows were persisted with a single amount column.
+        if self.current_amount == Decimal("0") and self.amount != Decimal("0"):
+            self.current_amount = self.amount
 
 
 def normalize_settlement(
@@ -206,8 +213,10 @@ def normalize_settlement(
                     account_code=str(value(row, "account_code")).strip(),
                     account_name=str(value(row, "account_name")).strip(),
                     category=category,
-                    amount=_decimal(value(row, "amount")),
+                    amount=_decimal(value(row, "current_amount")) if profile.mapping.get("current_amount") else _decimal(value(row, "amount")),
                     measurement_basis=basis,
+                    current_amount=_decimal(value(row, "current_amount")) if profile.mapping.get("current_amount") else _decimal(value(row, "amount")),
+                    prior_amount=_decimal(value(row, "prior_amount")),
                 )
             )
     finally:

@@ -42,6 +42,8 @@ FIELD_ALIASES: dict[str, tuple[str, ...]] = {
         "금액", "당기", "당월", "당기말", "기말잔액", "누계", "누적금액",
         "잔액", "amount",
     ),
+    "current_amount": ("당기", "당월", "당기말", "당기금액", "current", "currentamount"),
+    "prior_amount": ("전기", "전년", "전기말", "전기금액", "prior", "previous", "prioramount"),
     "measurement_basis": ("측정기준", "금액기준", "basis"),
 }
 
@@ -49,7 +51,7 @@ REQUIRED_FIELDS = {
     "GENERAL_LEDGER": {"document_number", "posting_date", "account_code"},
     # A settlement schedule can use UPLOAD_PERIOD_TOKEN in place of a period
     # column.  The AVI execution form supplies that period explicitly.
-    "SETTLEMENT_SCHEDULE": {"account_code", "amount"},
+    "SETTLEMENT_SCHEDULE": {"account_code", "current_amount", "prior_amount"},
 }
 
 SOURCE_FIELDS = {
@@ -60,7 +62,7 @@ SOURCE_FIELDS = {
         "account_name", "project_code", "contract_code", "vendor_code", "customer_code",
     },
     "SETTLEMENT_SCHEDULE": {
-        "period", "account_code", "account_name", "category", "amount", "measurement_basis",
+        "period", "account_code", "account_name", "category", "amount", "current_amount", "prior_amount", "measurement_basis",
     },
 }
 

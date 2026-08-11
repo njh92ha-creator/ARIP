@@ -95,6 +95,8 @@ def settlement_balances_from_rows(
             category=row.category,
             amount=row.amount,
             measurement_basis=row.measurement_basis,
+            current_amount=row.current_amount,
+            prior_amount=row.prior_amount,
         )
         for row in rows
     ]
@@ -143,6 +145,39 @@ def _materiality_threshold(repo: Any, company_id: UUID) -> Decimal:
         None,
     )
     return profile.trivial_threshold if profile else Decimal("0")
+
+
+def materiality_qualified_settlement_accounts(
+    repo: Any, closing_set: ClosingAnalysisSet, balances: list[SettlementBalance]
+) -> dict[str, dict[str, str]]:
+    """Select settlement accounts with an absolute period change above performance materiality."""
+    profile = next(
+        (
+            item
+            for item in repo.materiality_profiles.values()
+            if item.company_id == closing_set.company_id and item.status == "APPROVED"
+        ),
+        None,
+    )
+    if profile is None:
+        return {}
+    threshold = profile.performance_materiality
+    qualified: dict[str, dict[str, str]] = {}
+    for balance in balances:
+        difference = balance.current_amount - balance.prior_amount
+        if abs(difference) <= threshold:
+            continue
+        qualified[balance.account_code] = {
+            "accountCode": balance.account_code,
+            "accountName": balance.account_name,
+            "currentAmount": str(balance.current_amount),
+            "priorAmount": str(balance.prior_amount),
+            "difference": str(difference),
+            "absoluteDifference": str(abs(difference)),
+            "performanceMateriality": str(threshold),
+            "selectionReason": "ABSOLUTE_PERIOD_CHANGE_EXCEEDS_PERFORMANCE_MATERIALITY",
+        }
+    return qualified
 
 
 def detect_cross_analysis_findings(
@@ -311,6 +346,8 @@ def _historical_settlement_rows(repo: Any, company_id: UUID) -> list[SettlementR
             category=balance.category,
             amount=balance.amount,
             measurement_basis=balance.measurement_basis,
+            current_amount=balance.current_amount,
+            prior_amount=balance.prior_amount,
         )
         for balance in repo.settlement_balances.values()
         if balance.company_id == company_id
@@ -382,7 +419,9 @@ def analyze_closing_analysis_set(
     repo.save(closing_set)
     scoped_lines = repo.lines_for_set(closing_set.id)
     scoped_balances = repo.settlement_for_set(closing_set.id)
-    findings = detect_cross_analysis_findings(repo, closing_set, scoped_lines, scoped_balances)
+    qualified_accounts = materiality_qualified_settlement_accounts(repo, closing_set, scoped_balances)
+    closing_set.reconciliation_status = ReconciliationStatus.NOT_COMPARABLE
+    repo.save(closing_set)
     processing = process_journals(
         repo,
         scoped_lines,
@@ -394,14 +433,12 @@ def analyze_closing_analysis_set(
         ai_provider=ai_provider,
         ai_key_env=ai_key_env,
         embedding_model=embedding_model,
-        cross_findings=findings,
+        materiality_variances=qualified_accounts,
     )
     for event in repo.events.values():
         if any(line_id in {line.id for line in scoped_lines} for line_id in event.journal_line_ids):
             event.closing_analysis_set_id = closing_set.id
             repo.save(event)
-    # Cross-analysis findings are passed to the AI as transaction facts above.
-    # They may not create or overwrite a fixed audit risk on their own.
     variance_count = _link_variance_to_risks(repo, closing_set)
     closing_set.status = ClosingAnalysisStatus.COMPLETED
     closing_set.updated_at = utcnow()
@@ -411,7 +448,8 @@ def analyze_closing_analysis_set(
         "closingAnalysisSetId": str(closing_set.id),
         "journalLines": len(scoped_lines),
         "settlementBalances": len(scoped_balances),
-        "crossFindings": len(findings),
+        "crossFindings": 0,
+        "qualifiedAccounts": len(qualified_accounts),
         "varianceObservations": variance_count,
         "events": processing["events"],
         "risks": processing["risks"],

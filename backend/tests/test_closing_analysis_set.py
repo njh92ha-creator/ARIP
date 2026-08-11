@@ -16,6 +16,57 @@ from app.services.closing_analysis import create_closing_analysis_set, analyze_c
 
 
 class ClosingAnalysisSetTest(unittest.TestCase):
+    def test_only_accounts_with_absolute_settlement_variance_above_performance_materiality_reach_ai(self) -> None:
+        repo = InMemoryRepository(persistent=False)
+        company = repo.save(CompanySettings("P001", "Test Company", "Manufacturing"))
+        repo.save(
+            MaterialityProfile(
+                company_id=company.id,
+                name="Default",
+                benchmark="TOTAL_ASSETS",
+                overall_materiality=Decimal("500"),
+                performance_materiality=Decimal("100"),
+                trivial_threshold=Decimal("10"),
+                effective_from=date(2025, 1, 1),
+                status="APPROVED",
+            )
+        )
+        closing_set = create_closing_analysis_set(repo, company.id, 2025, 6)
+        lines = [
+            JournalLine(company_id=company.id, source_row=1, document_number="JE-1", posting_date=date(2025, 6, 4), account_code="1000", account_name="현금", local_amount=Decimal("500"), debit_credit_indicator="D", fiscal_year=2025, fiscal_period=6, source_hash="eligible"),
+            JournalLine(company_id=company.id, source_row=2, document_number="JE-2", posting_date=date(2025, 6, 4), account_code="2000", account_name="매출", local_amount=Decimal("500"), debit_credit_indicator="C", fiscal_year=2025, fiscal_period=6, source_hash="ineligible"),
+        ]
+        balances = [
+            SettlementBalance(company_id=company.id, fiscal_year=2025, fiscal_period=6, account_code="1000", account_name="현금", category="ASSET", amount=Decimal("500"), current_amount=Decimal("500"), prior_amount=Decimal("300"), measurement_basis="ENDING_BALANCE"),
+            SettlementBalance(company_id=company.id, fiscal_year=2025, fiscal_period=6, account_code="2000", account_name="매출", category="REVENUE", amount=Decimal("300"), current_amount=Decimal("300"), prior_amount=Decimal("250"), measurement_basis="YTD_CUMULATIVE"),
+        ]
+
+        class CapturingProvider:
+            def __init__(self) -> None:
+                self.facts: list[dict] = []
+
+            def analyze(self, event_facts, references):
+                self.facts.append(event_facts)
+                return {
+                    "riskSummary": "현금 증감 거래의 검토가 필요합니다.", "issueTypes": ["현금 증감"],
+                    "relatedAccounts": ["현금"], "voucherCount": 1, "eventInference": "현금 거래",
+                    "auditIssues": ["현금 증감 검토"], "expectedQuestions": [], "evidenceChecklist": [],
+                    "responseGuidance": [], "standardsEvidence": [], "ledgerEvidence": [], "referenceIds": [],
+                    "missingFacts": [], "uncertainty": "MEDIUM",
+                }
+
+        provider = CapturingProvider()
+        result = analyze_closing_analysis_set(
+            repo, closing_set.id, lines=lines, settlement_balances=balances,
+            actor="test", analysis_provider=provider,
+        )
+
+        self.assertEqual(result["qualifiedAccounts"], 1)
+        self.assertEqual(result["events"], 1)
+        self.assertEqual(len(provider.facts), 1)
+        self.assertEqual(provider.facts[0]["materialityVariances"][0]["accountCode"], "1000")
+        self.assertEqual(provider.facts[0]["materialityVariances"][0]["difference"], "200")
+        self.assertEqual(provider.facts[0]["materialityVariances"][0]["absoluteDifference"], "200")
     def test_analysis_set_is_scoped_only_to_company(self) -> None:
         repo = InMemoryRepository(persistent=False)
         company = repo.save(CompanySettings("P001", "Test Company", "Manufacturing"))

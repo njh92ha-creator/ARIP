@@ -34,21 +34,23 @@ class MappingAndPipelineTest(unittest.TestCase):
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "Sheet1"
-        sheet.append(["계정코드", "계정명", "당기"])
-        sheet.append([122500, "현금", 501000000])
-        sheet.append([344000, "자본금", -500000])
+        sheet.append(["계정코드", "계정명", "당기", "전기"])
+        sheet.append([122500, "현금", 501000000, 300000000])
+        sheet.append([344000, "자본금", -500000, -400000])
         handle = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
         handle.close()
         workbook.save(handle.name)
         return Path(handle.name)
 
-    def test_settlement_three_column_form_uses_current_period_as_amount(self) -> None:
+    def test_settlement_current_and_prior_columns_are_mapped(self) -> None:
         path = self.make_settlement()
         try:
             proposal = propose_mapping(path, "SETTLEMENT_SCHEDULE")
             self.assertEqual(proposal.mapping["account_code"], "계정코드")
             self.assertEqual(proposal.mapping["account_name"], "계정명")
             self.assertEqual(proposal.mapping["amount"], "당기")
+            self.assertEqual(proposal.mapping["current_amount"], "당기")
+            self.assertEqual(proposal.mapping["prior_amount"], "전기")
             self.assertEqual(proposal.mapping["period"], "__UPLOAD_PERIOD__")
             self.assertFalse(proposal.missing_required)
 
@@ -65,6 +67,8 @@ class MappingAndPipelineTest(unittest.TestCase):
             rows = normalize_settlement(path, profile, upload_period="2026-07")
             self.assertEqual(rows[0].period, "2026-07")
             self.assertEqual(rows[0].amount, Decimal("501000000"))
+            self.assertEqual(rows[0].current_amount, Decimal("501000000"))
+            self.assertEqual(rows[0].prior_amount, Decimal("300000000"))
         finally:
             path.unlink(missing_ok=True)
 
