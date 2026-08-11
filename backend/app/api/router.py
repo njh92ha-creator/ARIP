@@ -262,11 +262,7 @@ def demo_login(user: CurrentUser = Depends(current_user)) -> Any:
 
 
 @router.get("/auth/me")
-def get_me(
-    user: CurrentUser = Depends(
-        require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
-    ),
-) -> Any:
+def get_me(user: CurrentUser = Depends(current_user)) -> Any:
     return {
         "userId": user.user_id,
         "role": user.role.value,
@@ -934,13 +930,7 @@ def dashboard(company_id: UUID) -> Any:
 
 
 @router.get("/risks")
-def list_risks(
-    company_id: UUID,
-    user: CurrentUser = Depends(
-        require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
-    ),
-) -> Any:
-    _require_review_company(user, company_id)
+def list_risks(company_id: UUID) -> Any:
     return encode(
         [
             _risk_review_payload(risk)
@@ -999,24 +989,29 @@ def _risk_review_payload(risk: Any) -> dict[str, Any]:
     }
 
 
+def _review_case(review_case_ref: UUID | str) -> Any:
+    try:
+        review_case_id = UUID(str(review_case_ref))
+    except ValueError:
+        matches = [
+            item for item in repository.risk_review_cases.values()
+            if item.risk_code == str(review_case_ref)
+        ]
+        review_case = matches[0] if len(matches) == 1 else None
+    else:
+        review_case = repository.get_review_case(review_case_id)
+    if review_case is None:
+        raise HTTPException(404, "risk review case not found")
+    return review_case
+
+
 def _require_review_company(user: CurrentUser, company_id: UUID) -> None:
     if user.company_id is None or user.company_id != company_id:
         raise HTTPException(403, "company scope does not authorize this review")
 
 
-def _review_case_for_user(review_case_ref: UUID | str, user: CurrentUser) -> Any:
-    try:
-        review_case_id = UUID(str(review_case_ref))
-    except ValueError:
-        if user.company_id is None:
-            raise HTTPException(403, "company scope does not authorize this review")
-        review_case = repository.review_case_by_risk_code(
-            user.company_id, str(review_case_ref)
-        )
-    else:
-        review_case = repository.get_review_case(review_case_id)
-    if review_case is None:
-        raise HTTPException(404, "risk review case not found")
+def _review_case_for_user(review_case_id: UUID, user: CurrentUser) -> Any:
+    review_case = _review_case(review_case_id)
     _require_review_company(user, review_case.company_id)
     return review_case
 
@@ -1035,13 +1030,7 @@ def _review_case_summary(review_case: Any) -> dict[str, Any]:
 
 
 @router.get("/risk-reviews")
-def list_risk_reviews(
-    company_id: UUID,
-    user: CurrentUser = Depends(
-        require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
-    ),
-) -> Any:
-    _require_review_company(user, company_id)
+def list_risk_reviews(company_id: UUID) -> Any:
     return encode(
         [
             _review_case_summary(review_case)
@@ -1052,14 +1041,8 @@ def list_risk_reviews(
 
 
 @router.get("/settings/risk-management")
-def list_risk_management(
-    company_id: UUID,
-    user: CurrentUser = Depends(
-        require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
-    ),
-) -> Any:
+def list_risk_management(company_id: UUID) -> Any:
     """Administrative view of source analyses which remain eligible for management."""
-    _require_review_company(user, company_id)
     return encode(
         [
             _risk_review_payload(risk)
@@ -1092,9 +1075,7 @@ def _review_case_payload(review_case: Any) -> dict[str, Any]:
 def transfer_risk_to_review(
     risk_id: UUID,
     payload: RiskReviewTransfer,
-    user: CurrentUser = Depends(
-        require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
-    ),
+    user: CurrentUser = Depends(require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
     risk = _entity(repository.risks, risk_id, "risk")
     _require_review_company(user, risk.company_id)
@@ -1115,9 +1096,8 @@ def transfer_risk_to_review(
 @router.get("/risk-reviews/{review_case_id}")
 def get_risk_review_case(
     review_case_id: str,
-    user: CurrentUser = Depends(require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
-    return _review_case_payload(_review_case_for_user(review_case_id, user))
+    return _review_case_payload(_review_case(review_case_id))
 
 
 @router.put("/risk-reviews/{review_case_id}/answers")
@@ -1152,12 +1132,12 @@ def set_risk_review_case_decision(
 def set_risk_review_case_severity(
     review_case_id: UUID,
     payload: RiskReviewCaseSeverity,
-    user: CurrentUser = Depends(require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
     severity = payload.severity.upper()
     if severity not in RISK_SEVERITIES:
         raise HTTPException(422, "severity must be HIGH, MEDIUM, or LOW")
-    _review_case_for_user(review_case_id, user)
+    _review_case(review_case_id)
     review_case = repository.update_review_case_severity(review_case_id, severity)
     return _review_case_payload(review_case)
 
@@ -1235,12 +1215,8 @@ def delete_risk_review_attachment(
 @router.get("/risks/{risk_id}")
 def get_risk(
     risk_id: UUID,
-    user: CurrentUser = Depends(
-        require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
-    ),
 ) -> Any:
     risk = _entity(repository.risks, risk_id, "risk")
-    _require_review_company(user, risk.company_id)
     event = repository.events.get(risk.event_id)
     lines = [
         line
@@ -1337,9 +1313,7 @@ def get_event(event_id: UUID) -> Any:
 def set_risk_review_decision(
     risk_id: UUID,
     payload: RiskReviewDecision,
-    user: CurrentUser = Depends(
-        require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
-    ),
+    user: CurrentUser = Depends(require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
     risk = _entity(repository.risks, risk_id, "risk")
     _require_review_company(user, risk.company_id)

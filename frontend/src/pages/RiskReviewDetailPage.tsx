@@ -25,8 +25,7 @@ import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import { Link, useParams } from 'react-router-dom'
-import { api, AuthPrincipal, Company, RiskReviewAnswer, RiskReviewAttachment, RiskReviewCase } from '../api'
-import { selectAuthenticatedCompany } from '../authenticatedCompany'
+import { api, Company, RiskReviewAnswer, RiskReviewAttachment, RiskReviewCase } from '../api'
 import { RiskReviewSnapshotEvidence } from './RiskReviewSnapshotEvidence'
 
 const primary = '#0056B0'
@@ -243,11 +242,7 @@ export function RiskReviewDetailPage() {
     queryKey: ['companies'],
     queryFn: async () => (await api.get<Company[]>('/companies')).data,
   })
-  const { data: principal, isLoading: isPrincipalLoading, isError: isPrincipalError } = useQuery({
-    queryKey: ['auth-me'],
-    queryFn: async () => (await api.get<AuthPrincipal>('/auth/me')).data,
-  })
-  const company = selectAuthenticatedCompany(companies, principal)
+  const company = companies?.[0]
   const { data: reviewCase, isError, error } = useQuery({
     queryKey: ['risk-review', riskCode],
     enabled: Boolean(riskCode && company),
@@ -306,8 +301,8 @@ export function RiskReviewDetailPage() {
   const controlsPending = decision.isPending || severity.isPending
 
   if (!riskCode) return <Alert severity="error">검토 케이스 경로가 올바르지 않습니다.</Alert>
-  if (isCompanyError || isPrincipalError || isError) return <Alert severity="error">{errorMessage(error, '검토 케이스를 불러오지 못했습니다.')}</Alert>
-  if (!isCompanyLoading && !isPrincipalLoading && !company) return <Alert severity="info">이 계정에 허용된 회사 범위가 없습니다.</Alert>
+  if (isCompanyError || isError) return <Alert severity="error">{errorMessage(error, '검토 케이스를 불러오지 못했습니다.')}</Alert>
+  if (!isCompanyLoading && !company) return <Alert severity="info">등록된 회사가 없습니다.</Alert>
   if (!reviewCase) return <Box sx={{ py: 8, textAlign: 'center' }}><CircularProgress size={30} /></Box>
   if (!company) return <Box sx={{ py: 8, textAlign: 'center' }}><CircularProgress size={30} /></Box>
 

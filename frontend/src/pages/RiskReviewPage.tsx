@@ -1,8 +1,7 @@
 import { Alert, Box, Card, Chip, CircularProgress, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { api, AuthPrincipal, Company, RiskReviewSummary } from '../api'
-import { selectAuthenticatedCompany } from '../authenticatedCompany'
+import { api, Company, RiskReviewSummary } from '../api'
 
 const primary = '#0056B0'
 const border = '#E5E7EB'
@@ -37,11 +36,7 @@ export function RiskReviewPage() {
     queryKey: ['companies'],
     queryFn: async () => (await api.get<Company[]>('/companies')).data,
   })
-  const { data: principal, isLoading: isPrincipalLoading, isError: isPrincipalError } = useQuery({
-    queryKey: ['auth-me'],
-    queryFn: async () => (await api.get<AuthPrincipal>('/auth/me')).data,
-  })
-  const company = selectAuthenticatedCompany(companies, principal)
+  const company = companies?.[0]
   const { data = [], isLoading, isError } = useQuery({
     queryKey: ['risk-reviews', company?.id],
     enabled: Boolean(company),
@@ -50,8 +45,8 @@ export function RiskReviewPage() {
     })).data,
   })
   const activeCases = data.filter((reviewCase) => reviewCase.review_decision !== 'PASS')
-  const hasLoadError = isCompanyError || isPrincipalError || isError
-  const isScopeLoading = isCompanyLoading || isPrincipalLoading
+  const hasLoadError = isCompanyError || isError
+  const isScopeLoading = isCompanyLoading
 
   return <Box>
     <Typography variant="h4">리스크 검토</Typography>
