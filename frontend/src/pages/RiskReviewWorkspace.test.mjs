@@ -51,8 +51,19 @@ test('decision and severity mutations cannot restore the other control field', a
 test('review list load errors are exclusive of setup and empty states', async () => {
   const [, list] = await readSources()
 
-  assert.match(list, /const hasLoadError = isCompanyError \|\| isError/)
+  assert.match(list, /const hasLoadError = isCompanyError \|\| isPrincipalError \|\| isError/)
   assert.match(list, /\{hasLoadError \? <Alert/)
-  assert.match(list, /: !isCompanyLoading && !company \? <Alert/)
+  assert.match(list, /: !isScopeLoading && !company \? <Alert/)
   assert.doesNotMatch(list, /\{isCompanyError \|\| isError \? <Alert/)
+})
+
+test('review pages select only a company authorized by auth me', async () => {
+  const [, list, detail] = await readSources()
+
+  for (const source of [list, detail]) {
+    assert.match(source, /api\.get<AuthPrincipal>\('\/auth\/me'\)/)
+    assert.match(source, /selectAuthenticatedCompany\(companies, principal\)/)
+    assert.doesNotMatch(source, /const company = companies\?\.\[0\]/)
+    assert.doesNotMatch(source, /companyScope/)
+  }
 })

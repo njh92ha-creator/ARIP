@@ -46,7 +46,13 @@ from app.domain.models import (
     RiskStatus,
 )
 from app.domain.repository import repository
-from app.core.security import CurrentUser, Role, current_user, require_roles
+from app.core.security import (
+    CurrentUser,
+    Role,
+    current_user,
+    require_review_roles,
+    require_roles,
+)
 from app.core.database import check_database
 from app.services.risk_timestamps import latest_analysis_at
 from app.services.risk_review import (
@@ -248,14 +254,25 @@ def demo_login(user: CurrentUser = Depends(current_user)) -> Any:
     return {
         "userId": user.user_id,
         "role": user.role.value,
+        "companyId": str(user.company_id) if user.company_id else None,
+        "companyIds": sorted(str(company_id) for company_id in user.company_ids),
         "mode": "DEMO_HEADER_AUTH",
         "warning": "운영 배포 시 OIDC/SSO Adapter로 교체해야 합니다.",
     }
 
 
 @router.get("/auth/me")
-def get_me(user: CurrentUser = Depends(current_user)) -> Any:
-    return {"userId": user.user_id, "role": user.role.value}
+def get_me(
+    user: CurrentUser = Depends(
+        require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
+    ),
+) -> Any:
+    return {
+        "userId": user.user_id,
+        "role": user.role.value,
+        "companyId": str(user.company_id) if user.company_id else None,
+        "companyIds": sorted(str(company_id) for company_id in user.company_ids),
+    }
 
 
 @router.post("/companies", status_code=201)
@@ -1015,7 +1032,7 @@ def _review_case_summary(review_case: Any) -> dict[str, Any]:
 def list_risk_reviews(
     company_id: UUID,
     user: CurrentUser = Depends(
-        require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
+        require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
     ),
 ) -> Any:
     _require_review_company(user, company_id)
@@ -1064,7 +1081,7 @@ def transfer_risk_to_review(
     risk_id: UUID,
     payload: RiskReviewTransfer,
     user: CurrentUser = Depends(
-        require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
+        require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
     ),
 ) -> Any:
     risk = _entity(repository.risks, risk_id, "risk")
@@ -1086,7 +1103,7 @@ def transfer_risk_to_review(
 @router.get("/risk-reviews/{review_case_id}")
 def get_risk_review_case(
     review_case_id: str,
-    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
     return _review_case_payload(_review_case_for_user(review_case_id, user))
 
@@ -1095,7 +1112,7 @@ def get_risk_review_case(
 def save_risk_review_answer(
     review_case_id: UUID,
     payload: RiskReviewAnswerUpdate,
-    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
     _review_case_for_user(review_case_id, user)
     return encode(
@@ -1109,7 +1126,7 @@ def save_risk_review_answer(
 def set_risk_review_case_decision(
     review_case_id: UUID,
     payload: RiskReviewCaseDecision,
-    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
     decision = payload.decision.upper()
     if decision not in REVIEW_DECISIONS:
@@ -1123,7 +1140,7 @@ def set_risk_review_case_decision(
 def set_risk_review_case_severity(
     review_case_id: UUID,
     payload: RiskReviewCaseSeverity,
-    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
     severity = payload.severity.upper()
     if severity not in RISK_SEVERITIES:
@@ -1137,7 +1154,7 @@ def set_risk_review_case_severity(
 def add_risk_review_attachment(
     review_case_id: UUID,
     file: UploadFile = File(...),
-    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
     _review_case_for_user(review_case_id, user)
     attachment = RiskReviewAttachment(
@@ -1165,7 +1182,7 @@ def add_risk_review_attachment(
 def download_risk_review_attachment(
     review_case_id: UUID,
     attachment_id: UUID,
-    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Response:
     _review_case_for_user(review_case_id, user)
     attachment = next(
@@ -1193,7 +1210,7 @@ def download_risk_review_attachment(
 def delete_risk_review_attachment(
     review_case_id: UUID,
     attachment_id: UUID,
-    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
     _review_case_for_user(review_case_id, user)
     try:

@@ -5,10 +5,6 @@ export const api = axios.create({
   timeout: 120000,
 })
 
-export const companyScope = (companyId: string) => ({
-  headers: { 'X-ARIP-Company-ID': companyId },
-})
-
 export interface Company {
   id: string
   company_code: string
@@ -71,6 +67,13 @@ export interface Risk {
       description: string
     }>
   }
+}
+
+export interface AuthPrincipal {
+  userId: string
+  role: string
+  companyId: string | null
+  companyIds: string[]
 }
 
 export interface RiskReviewCase {

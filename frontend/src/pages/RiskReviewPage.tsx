@@ -1,7 +1,8 @@
 import { Alert, Box, Card, Chip, CircularProgress, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { api, Company, companyScope, RiskReviewSummary } from '../api'
+import { api, AuthPrincipal, Company, RiskReviewSummary } from '../api'
+import { selectAuthenticatedCompany } from '../authenticatedCompany'
 
 const primary = '#0056B0'
 const border = '#E5E7EB'
@@ -36,28 +37,32 @@ export function RiskReviewPage() {
     queryKey: ['companies'],
     queryFn: async () => (await api.get<Company[]>('/companies')).data,
   })
-  const company = companies?.[0]
+  const { data: principal, isLoading: isPrincipalLoading, isError: isPrincipalError } = useQuery({
+    queryKey: ['auth-me'],
+    queryFn: async () => (await api.get<AuthPrincipal>('/auth/me')).data,
+  })
+  const company = selectAuthenticatedCompany(companies, principal)
   const { data = [], isLoading, isError } = useQuery({
     queryKey: ['risk-reviews', company?.id],
     enabled: Boolean(company),
     queryFn: async () => (await api.get<RiskReviewSummary[]>('/risk-reviews', {
       params: { company_id: company!.id },
-      ...companyScope(company!.id),
     })).data,
   })
   const activeCases = data.filter((reviewCase) => reviewCase.review_decision !== 'PASS')
-  const hasLoadError = isCompanyError || isError
+  const hasLoadError = isCompanyError || isPrincipalError || isError
+  const isScopeLoading = isCompanyLoading || isPrincipalLoading
 
   return <Box>
     <Typography variant="h4">리스크 검토</Typography>
     <Typography color="text.secondary" sx={{ mt: .75, mb: 3 }}>검토 대상으로 이관된 Check 및 Pending 리스크만 관리합니다.</Typography>
     {hasLoadError ? <Alert severity="error">검토 케이스를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</Alert>
-      : !isCompanyLoading && !company ? <Alert severity="info">먼저 설정에서 회사를 등록해 주세요.</Alert>
+      : !isScopeLoading && !company ? <Alert severity="info">이 계정에 허용된 회사 범위가 없습니다.</Alert>
       : <Card sx={cardSx}>
       <Box sx={{ overflowX: 'auto' }}><Table sx={{ minWidth: 820 }}>
         <TableHead><TableRow><TableCell>리스크 ID</TableCell><TableCell>이관된 분석 결과</TableCell><TableCell>검토 분류</TableCell><TableCell>심각도</TableCell><TableCell>상태</TableCell><TableCell>이관 일시</TableCell></TableRow></TableHead>
         <TableBody>
-          {isCompanyLoading || (company && isLoading) ? <TableRow><TableCell colSpan={6} align="center" sx={{ py: 8 }}><CircularProgress size={28} /></TableCell></TableRow> :
+          {isScopeLoading || (company && isLoading) ? <TableRow><TableCell colSpan={6} align="center" sx={{ py: 8 }}><CircularProgress size={28} /></TableCell></TableRow> :
             activeCases.length === 0 ? <TableRow><TableCell colSpan={6} align="center" sx={{ py: 8, color: 'text.secondary' }}>검토할 이관 리스크가 없습니다.</TableCell></TableRow> :
               activeCases.map((reviewCase) => <TableRow key={reviewCase.risk_code} hover>
                 <TableCell><Typography component={Link} to={`/risk-reviews/${encodeURIComponent(reviewCase.risk_code)}`} sx={{ color: primary, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>{reviewCase.risk_code || '-'}</Typography></TableCell>

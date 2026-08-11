@@ -25,7 +25,8 @@ import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import { Link, useParams } from 'react-router-dom'
-import { api, Company, companyScope, RiskReviewAnswer, RiskReviewAttachment, RiskReviewCase } from '../api'
+import { api, AuthPrincipal, Company, RiskReviewAnswer, RiskReviewAttachment, RiskReviewCase } from '../api'
+import { selectAuthenticatedCompany } from '../authenticatedCompany'
 import { RiskReviewSnapshotEvidence } from './RiskReviewSnapshotEvidence'
 
 const primary = '#0056B0'
@@ -73,14 +74,13 @@ function ReadOnlyList({ items, emptyText }: { items?: string[]; emptyText: strin
   return <Stack component="ul" spacing={1} sx={{ pl: 2.5, mb: 0 }}>{items.map((item) => <Typography component="li" key={item} variant="body2" sx={{ lineHeight: 1.7 }}>{item}</Typography>)}</Stack>
 }
 
-function AnswerEditor({ reviewCaseId, companyId, cacheKey, question, savedAnswer }: { reviewCaseId: string; companyId: string; cacheKey: string; question: string; savedAnswer?: RiskReviewAnswer }) {
+function AnswerEditor({ reviewCaseId, cacheKey, question, savedAnswer }: { reviewCaseId: string; cacheKey: string; question: string; savedAnswer?: RiskReviewAnswer }) {
   const queryClient = useQueryClient()
   const [answer, setAnswer] = useState(savedAnswer?.answer ?? '')
   const mutation = useMutation({
     mutationFn: async (submittedAnswer: string) => (await api.put<RiskReviewAnswer>(
       `/risk-reviews/${reviewCaseId}/answers`,
       { question, answer: submittedAnswer },
-      companyScope(companyId),
     )).data,
     onSuccess: (saved) => {
       queryClient.setQueryData<RiskReviewCase>(['risk-review', cacheKey], (current) => current ? {
@@ -140,7 +140,7 @@ function SnapshotCard({ reviewCase }: { reviewCase: RiskReviewCase }) {
   </CardContent></Card>
 }
 
-function AttachmentCard({ reviewCase, companyId, cacheKey }: { reviewCase: RiskReviewCase; companyId: string; cacheKey: string }) {
+function AttachmentCard({ reviewCase, cacheKey }: { reviewCase: RiskReviewCase; cacheKey: string }) {
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -155,7 +155,6 @@ function AttachmentCard({ reviewCase, companyId, cacheKey }: { reviewCase: RiskR
       return (await api.post<RiskReviewAttachment>(
         `/risk-reviews/${reviewCase.id}/attachments`,
         form,
-        companyScope(companyId),
       )).data
     },
     onSuccess: (attachment) => {
@@ -168,7 +167,6 @@ function AttachmentCard({ reviewCase, companyId, cacheKey }: { reviewCase: RiskR
   const remove = useMutation({
     mutationFn: async (attachmentId: string) => api.delete(
       `/risk-reviews/${reviewCase.id}/attachments/${attachmentId}`,
-      companyScope(companyId),
     ),
     onSuccess: (_, attachmentId) => {
       setMessage(null)
@@ -183,7 +181,7 @@ function AttachmentCard({ reviewCase, companyId, cacheKey }: { reviewCase: RiskR
     try {
       const response = await api.get<Blob>(
         `/risk-reviews/${reviewCase.id}/attachments/${attachment.id}/download`,
-        { responseType: 'blob', ...companyScope(companyId) },
+        { responseType: 'blob' },
       )
       const href = URL.createObjectURL(response.data)
       const anchor = document.createElement('a')
@@ -245,13 +243,16 @@ export function RiskReviewDetailPage() {
     queryKey: ['companies'],
     queryFn: async () => (await api.get<Company[]>('/companies')).data,
   })
-  const company = companies?.[0]
+  const { data: principal, isLoading: isPrincipalLoading, isError: isPrincipalError } = useQuery({
+    queryKey: ['auth-me'],
+    queryFn: async () => (await api.get<AuthPrincipal>('/auth/me')).data,
+  })
+  const company = selectAuthenticatedCompany(companies, principal)
   const { data: reviewCase, isError, error } = useQuery({
     queryKey: ['risk-review', riskCode],
     enabled: Boolean(riskCode && company),
     queryFn: async () => (await api.get<RiskReviewCase>(
       `/risk-reviews/${encodeURIComponent(riskCode!)}`,
-      companyScope(company!.id),
     )).data,
   })
   const reviewCaseId = reviewCase?.id
@@ -262,7 +263,6 @@ export function RiskReviewDetailPage() {
       return (await api.post<RiskReviewCase>(
         `/risk-reviews/${reviewCaseId}/review-decision`,
         { decision: value },
-        companyScope(company.id),
       )).data
     },
     onMutate: async (value) => {
@@ -286,7 +286,6 @@ export function RiskReviewDetailPage() {
       return (await api.post<RiskReviewCase>(
         `/risk-reviews/${reviewCaseId}/severity`,
         { severity: value },
-        companyScope(company.id),
       )).data
     },
     onMutate: async (value) => {
@@ -307,11 +306,10 @@ export function RiskReviewDetailPage() {
   const controlsPending = decision.isPending || severity.isPending
 
   if (!riskCode) return <Alert severity="error">검토 케이스 경로가 올바르지 않습니다.</Alert>
-  if (isCompanyError || isError) return <Alert severity="error">{errorMessage(error, '검토 케이스를 불러오지 못했습니다.')}</Alert>
-  if (!isCompanyLoading && !company) return <Alert severity="info">먼저 설정에서 회사를 등록해 주세요.</Alert>
+  if (isCompanyError || isPrincipalError || isError) return <Alert severity="error">{errorMessage(error, '검토 케이스를 불러오지 못했습니다.')}</Alert>
+  if (!isCompanyLoading && !isPrincipalLoading && !company) return <Alert severity="info">이 계정에 허용된 회사 범위가 없습니다.</Alert>
   if (!reviewCase) return <Box sx={{ py: 8, textAlign: 'center' }}><CircularProgress size={30} /></Box>
   if (!company) return <Box sx={{ py: 8, textAlign: 'center' }}><CircularProgress size={30} /></Box>
-  const companyId = company.id
 
   const questions = [...new Set([...(reviewCase.package.expected_questions ?? []), ...reviewCase.answers.map((item) => item.question)])]
   const answerByQuestion = new Map(reviewCase.answers.map((item) => [item.question, item]))
@@ -359,10 +357,10 @@ export function RiskReviewDetailPage() {
         <SectionTitle action={<Chip label={`${reviewCase.answers.filter((item) => item.answer.trim()).length} / ${questions.length}`} size="small" variant="outlined" />}>검토 질문 및 답변</SectionTitle>
         <Typography color="text.secondary" variant="body2" sx={{ mt: 1.5 }}>각 질문의 답변은 개별적으로 저장됩니다.</Typography>
         <Stack spacing={1.5} sx={{ mt: 2 }}>
-          {questions.length ? questions.map((question) => <AnswerEditor key={question} reviewCaseId={reviewCase.id} companyId={companyId} cacheKey={riskCode} question={question} savedAnswer={answerByQuestion.get(question)} />) : <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>이관된 검토 질문이 없습니다.</Typography>}
+          {questions.length ? questions.map((question) => <AnswerEditor key={question} reviewCaseId={reviewCase.id} cacheKey={riskCode} question={question} savedAnswer={answerByQuestion.get(question)} />) : <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>이관된 검토 질문이 없습니다.</Typography>}
         </Stack>
       </CardContent></Card>
-      <AttachmentCard reviewCase={reviewCase} companyId={companyId} cacheKey={riskCode} />
+      <AttachmentCard reviewCase={reviewCase} cacheKey={riskCode} />
     </Stack>
   </Box>
 }

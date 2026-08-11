@@ -1,5 +1,6 @@
 from decimal import Decimal
 from concurrent.futures import ThreadPoolExecutor
+import json
 from threading import Barrier, Lock
 from urllib.parse import quote
 from uuid import uuid4
@@ -73,6 +74,19 @@ def review_api(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, InMemoryRep
     isolated_repository = InMemoryRepository(persistent=False)
     monkeypatch.setattr(api_router, "repository", isolated_repository)
     source = make_source_risk(isolated_repository)
+    monkeypatch.setenv(
+        "ARIP_USER_COMPANY_SCOPES",
+        json.dumps(
+            {
+                "demo-admin": [str(source.company_id)],
+                "demo-accountant": [str(source.company_id)],
+            }
+        ),
+    )
+    monkeypatch.setenv(
+        "ARIP_AUTHENTICATED_PRINCIPAL",
+        json.dumps({"user_id": "demo-admin", "role": "ADMIN"}),
+    )
     return (
         TestClient(app, headers={"X-ARIP-Company-ID": str(source.company_id)}),
         isolated_repository,
@@ -388,7 +402,8 @@ def test_concurrent_transfers_append_one_transfer_record(
 
 
 def test_review_case_routes_require_an_established_role(
-    review_api: tuple[TestClient, InMemoryRepository, Risk]
+    review_api: tuple[TestClient, InMemoryRepository, Risk],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client, _, source = review_api
     review_case = transfer_to_review(client, source)
@@ -397,7 +412,15 @@ def test_review_case_routes_require_an_established_role(
         f"/api/v1/risk-reviews/{case_id}/attachments",
         files={"file": ("evidence.txt", b"audit evidence", "text/plain")},
     ).json()
-    forbidden_headers = {"X-ARIP-ROLE": "VIEWER"}
+    monkeypatch.setenv(
+        "ARIP_AUTHENTICATED_PRINCIPAL",
+        json.dumps({"user_id": "demo-viewer", "role": "VIEWER"}),
+    )
+    forbidden_headers = {
+        "X-ARIP-User": "demo-admin",
+        "X-ARIP-ROLE": "ADMIN",
+        "X-ARIP-Company-ID": str(source.company_id),
+    }
     requests = [
         ("get", f"/api/v1/risk-reviews/{case_id}", {}),
         ("put", f"/api/v1/risk-reviews/{case_id}/answers", {"json": {"question": "Q", "answer": "A"}}),
@@ -414,9 +437,14 @@ def test_review_case_routes_require_an_established_role(
 
 
 def test_review_list_rejects_viewers_and_principals_without_a_company_scope(
-    review_api: tuple[TestClient, InMemoryRepository, Risk]
+    review_api: tuple[TestClient, InMemoryRepository, Risk],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, _, source = review_api
+    monkeypatch.setenv(
+        "ARIP_AUTHENTICATED_PRINCIPAL",
+        json.dumps({"user_id": "demo-viewer", "role": "VIEWER"}),
+    )
     viewer = TestClient(app).get(
         "/api/v1/risk-reviews",
         params={"company_id": str(source.company_id)},
@@ -425,67 +453,106 @@ def test_review_list_rejects_viewers_and_principals_without_a_company_scope(
             "X-ARIP-Company-ID": str(source.company_id),
         },
     )
+    monkeypatch.setenv(
+        "ARIP_AUTHENTICATED_PRINCIPAL",
+        json.dumps({"user_id": "demo-admin", "role": "ADMIN"}),
+    )
+    monkeypatch.setenv("ARIP_USER_COMPANY_SCOPES", "{}")
     unscoped = TestClient(app).get(
+        "/api/v1/risk-reviews",
+        params={"company_id": str(source.company_id)},
+    )
+    monkeypatch.delenv("ARIP_AUTHENTICATED_PRINCIPAL")
+    unauthenticated = TestClient(app).get(
         "/api/v1/risk-reviews",
         params={"company_id": str(source.company_id)},
     )
 
     assert viewer.status_code == 403
     assert unscoped.status_code == 403
+    assert unauthenticated.status_code == 403
 
 
 def test_review_routes_deny_cross_company_read_write_transfer_and_download(
-    review_api: tuple[TestClient, InMemoryRepository, Risk]
+    review_api: tuple[TestClient, InMemoryRepository, Risk],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client, repository, authorized_source = review_api
     other_source = make_source_risk(repository, risk_code="AS_20260811_001")
-    other_scope = {"X-ARIP-Company-ID": str(other_source.company_id)}
+    monkeypatch.setenv(
+        "ARIP_USER_COMPANY_SCOPES",
+        json.dumps(
+            {
+                "demo-admin": [str(authorized_source.company_id)],
+                "other-reviewer": [str(other_source.company_id)],
+            }
+        ),
+    )
+    monkeypatch.setenv(
+        "ARIP_AUTHENTICATED_PRINCIPAL",
+        json.dumps({"user_id": "other-reviewer", "role": "ADMIN"}),
+    )
     transferred = client.post(
         f"/api/v1/risks/{other_source.id}/transfer-to-review",
         json={"review_decision": "CHECK", "severity": "HIGH"},
-        headers=other_scope,
     )
     assert transferred.status_code == 200, transferred.text
     case_id = transferred.json()["id"]
     upload = client.post(
         f"/api/v1/risk-reviews/{case_id}/attachments",
         files={"file": ("evidence.txt", b"audit evidence", "text/plain")},
-        headers=other_scope,
     )
     assert upload.status_code == 200, upload.text
     attachment_id = upload.json()["id"]
+    monkeypatch.setenv(
+        "ARIP_AUTHENTICATED_PRINCIPAL",
+        json.dumps({"user_id": "demo-admin", "role": "ADMIN"}),
+    )
+    forged_other_scope = {
+        "X-ARIP-User": "other-reviewer",
+        "X-ARIP-Role": "ADMIN",
+        "X-ARIP-Company-ID": str(other_source.company_id),
+    }
 
     forbidden_requests = [
         client.get(
             "/api/v1/risk-reviews",
             params={"company_id": str(other_source.company_id)},
+            headers=forged_other_scope,
         ),
         client.post(
             f"/api/v1/risks/{other_source.id}/transfer-to-review",
             json={"review_decision": "CHECK", "severity": "HIGH"},
+            headers=forged_other_scope,
         ),
-        client.get(f"/api/v1/risk-reviews/{case_id}"),
+        client.get(f"/api/v1/risk-reviews/{case_id}", headers=forged_other_scope),
         client.put(
             f"/api/v1/risk-reviews/{case_id}/answers",
             json={"question": "Q", "answer": "A"},
+            headers=forged_other_scope,
         ),
         client.post(
             f"/api/v1/risk-reviews/{case_id}/review-decision",
             json={"decision": "PENDING"},
+            headers=forged_other_scope,
         ),
         client.post(
             f"/api/v1/risk-reviews/{case_id}/severity",
             json={"severity": "LOW"},
+            headers=forged_other_scope,
         ),
         client.post(
             f"/api/v1/risk-reviews/{case_id}/attachments",
             files={"file": ("forbidden.txt", b"x", "text/plain")},
+            headers=forged_other_scope,
         ),
         client.get(
-            f"/api/v1/risk-reviews/{case_id}/attachments/{attachment_id}/download"
+            f"/api/v1/risk-reviews/{case_id}/attachments/{attachment_id}/download",
+            headers=forged_other_scope,
         ),
         client.delete(
-            f"/api/v1/risk-reviews/{case_id}/attachments/{attachment_id}"
+            f"/api/v1/risk-reviews/{case_id}/attachments/{attachment_id}",
+            headers=forged_other_scope,
         ),
     ]
 
@@ -493,6 +560,18 @@ def test_review_routes_deny_cross_company_read_write_transfer_and_download(
     assert all(response.status_code == 403 for response in forbidden_requests), [
         (response.status_code, response.text) for response in forbidden_requests
     ]
+
+
+def test_auth_me_returns_server_authorized_company_scopes(
+    review_api: tuple[TestClient, InMemoryRepository, Risk]
+) -> None:
+    _, _, source = review_api
+
+    response = TestClient(app).get("/api/v1/auth/me")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["companyId"] == str(source.company_id)
+    assert response.json()["companyIds"] == [str(source.company_id)]
 
 
 def test_review_list_returns_only_summary_fields(
