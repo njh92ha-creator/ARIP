@@ -66,6 +66,17 @@ def test_create_review_case_copies_the_source_analysis_snapshot() -> None:
     assert review_case.package.expected_questions == ["What is the repayment date?"]
 
 
+def test_create_review_case_validates_inputs_before_returning_an_existing_case() -> None:
+    repository = InMemoryRepository(persistent=False)
+    source = make_source_risk(repository)
+    repository.create_review_case(source, review_decision="CHECK", severity="HIGH")
+
+    with pytest.raises(ValueError, match="CHECK or PENDING"):
+        repository.create_review_case(source, review_decision="PASS", severity="HIGH")
+    with pytest.raises(ValueError, match="HIGH, MEDIUM, or LOW"):
+        repository.create_review_case(source, review_decision="CHECK", severity="CRITICAL")
+
+
 def test_add_review_attachment_rejects_the_eleventh_attachment() -> None:
     repository = InMemoryRepository(persistent=False)
     review_case = repository.create_review_case(

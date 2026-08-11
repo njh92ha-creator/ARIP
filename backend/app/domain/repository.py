@@ -475,13 +475,13 @@ class InMemoryRepository:
     ) -> RiskReviewCase:
         """Create one review case per source risk, preserving its transfer-time snapshot."""
         with self._lock:
-            existing = self.review_case_for_source_risk(source_risk.id)
-            if existing is not None:
-                return existing
             if review_decision not in {"CHECK", "PENDING"}:
                 raise ValueError("review decision must be CHECK or PENDING")
             if severity not in {"HIGH", "MEDIUM", "LOW"}:
                 raise ValueError("severity must be HIGH, MEDIUM, or LOW")
+            existing = self.review_case_for_source_risk(source_risk.id)
+            if existing is not None:
+                return existing
             review_case = RiskReviewCase(
                 company_id=source_risk.company_id,
                 source_risk_id=source_risk.id,
