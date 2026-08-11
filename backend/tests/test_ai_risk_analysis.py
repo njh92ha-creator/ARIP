@@ -221,6 +221,36 @@ class AiRiskFactsTest(unittest.TestCase):
         self.assertEqual(risk.package.standards_evidence, [])
         self.assertEqual(risk.package.ledger_evidence, analysis["ledgerEvidence"])
 
+    def test_ai_analysis_discards_unverifiable_standards_evidence(self) -> None:
+        analysis = {
+            "riskSummary": "자본 분류 근거 확인이 필요합니다.",
+            "issueTypes": ["자본 분류 검토"],
+            "relatedAccounts": ["자본금"],
+            "voucherCount": 1,
+            "eventInference": "증자 거래로 추정됩니다.",
+            "auditIssues": ["분류 기준 확인"],
+            "expectedQuestions": [],
+            "evidenceChecklist": [],
+            "responseGuidance": [],
+            "standardsEvidence": [
+                {"source": "K-IFRS", "title": "임의 문단", "paragraph": "제2조", "excerpt": "내용", "url": ""},
+                {"source": "IFRIC", "title": "검증된 링크", "paragraph": "", "excerpt": "", "url": "https://www.ifrs.org/issued-standards/list-of-standards/"},
+            ],
+            "ledgerEvidence": [],
+            "referenceIds": [],
+            "missingFacts": [],
+            "uncertainty": "MEDIUM",
+        }
+
+        risk = risk_from_ai_analysis(self.event, None, analysis, [])
+
+        self.assertIsNotNone(risk)
+        assert risk is not None
+        self.assertEqual(
+            risk.package.standards_evidence,
+            [analysis["standardsEvidence"][1]],
+        )
+
     def test_ai_hypothesis_without_direct_rag_citation_is_saved_for_fact_confirmation(self) -> None:
         analysis = {
             "riskSummary": "개발 관련 임대료가 개발비로 처리되어 인식요건 충족 여부의 확인이 필요합니다.",

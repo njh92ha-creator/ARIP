@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlparse
 from uuid import UUID
 
 from app.domain.models import (
@@ -135,6 +136,18 @@ def risk_from_ai_analysis(
         }
         for item in referenced
     ]
+    standards_evidence = []
+    for item in analysis.get("standardsEvidence", []):
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url", "")).strip()
+        host = urlparse(url).hostname or ""
+        if urlparse(url).scheme != "https" or host not in {
+            "ifrs.org", "www.ifrs.org", "kasb.or.kr", "www.kasb.or.kr",
+        }:
+            continue
+        standards_evidence.append(dict(item))
+
     package = RiskPackage(
         summary=summary,
         references=package_references,
@@ -148,7 +161,7 @@ def risk_from_ai_analysis(
         voucher_count=int(analysis.get("voucherCount", 0)),
         event_inference=str(analysis.get("eventInference", "")),
         audit_issues=[str(item) for item in analysis.get("auditIssues", [])],
-        standards_evidence=[dict(item) for item in analysis.get("standardsEvidence", [])],
+        standards_evidence=standards_evidence,
         ledger_evidence=[dict(item) for item in analysis.get("ledgerEvidence", [])],
     )
     title = f"검토 필요: {issue_types[0]}"
