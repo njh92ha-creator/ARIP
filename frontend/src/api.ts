@@ -31,6 +31,8 @@ export interface Risk {
   analyzed_at?: string | null
   review_decision?: 'CHECK' | 'PENDING' | 'PASS'
   review_recommendation?: { decision: 'CHECK' | 'PENDING' | 'PASS'; confidence: number; matched_cases: number; decision_counts?: { CHECK: number; PENDING: number; PASS: number } } | null
+  severity?: 'HIGH' | 'MEDIUM' | 'LOW'
+  severity_recommendation?: { severity: 'HIGH' | 'MEDIUM' | 'LOW'; confidence: number; matched_cases: number; severity_counts?: { HIGH: number; MEDIUM: number; LOW: number } } | null
   closing_analysis_set_id?: string
   cross_finding_ids?: string[]
   package: {

@@ -9,6 +9,7 @@ from app.domain.models import AccountingEvent, JournalLine, RiskMemoryEntry
 
 
 REVIEW_DECISIONS = {"CHECK", "PENDING", "PASS"}
+RISK_SEVERITIES = {"HIGH", "MEDIUM", "LOW"}
 
 
 def explicit_review_decision(entries: Iterable[RiskMemoryEntry]) -> str | None:
@@ -24,6 +25,21 @@ def explicit_review_decision(entries: Iterable[RiskMemoryEntry]) -> str | None:
 
 def current_review_decision(entries: Iterable[RiskMemoryEntry]) -> str:
     return explicit_review_decision(entries) or "CHECK"
+
+
+def explicit_risk_severity(entries: Iterable[RiskMemoryEntry]) -> str | None:
+    severity: str | None = None
+    for entry in entries:
+        if entry.entry_type != "RISK_SEVERITY":
+            continue
+        candidate = str(entry.metadata.get("severity", "")).upper()
+        if candidate in RISK_SEVERITIES:
+            severity = candidate
+    return severity
+
+
+def current_risk_severity(entries: Iterable[RiskMemoryEntry], default: str) -> str:
+    return explicit_risk_severity(entries) or default.upper()
 
 
 def is_visible_in_risk_lists(entries: Iterable[RiskMemoryEntry]) -> bool:
@@ -105,4 +121,37 @@ def recommend_review_decision(
         "decision": decision,
         "confidence": round(score / sum(votes.values()), 2),
         "matched_cases": matched_cases[decision],
+    }
+
+
+def recommend_risk_severity(
+    event: AccountingEvent,
+    lines: list[JournalLine],
+    history: Iterable[tuple[Any, ...]],
+    *,
+    issue_types: Iterable[str] | None = None,
+) -> dict[str, Any] | None:
+    target_issue_types = _normalized_issue_types(issue_types or [])
+    if not target_issue_types:
+        return None
+    counts = {severity: 0 for severity in RISK_SEVERITIES}
+    for item in history:
+        if len(item) < 4:
+            continue
+        _, _, entries, prior_issue_types = item
+        severity = explicit_risk_severity(entries)
+        if severity and target_issue_types & _normalized_issue_types(prior_issue_types):
+            counts[severity] += 1
+    total = sum(counts.values())
+    if not total:
+        return None
+    ordered = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+    if len(ordered) > 1 and ordered[0][1] == ordered[1][1]:
+        return None
+    severity, votes = ordered[0]
+    return {
+        "severity": severity,
+        "confidence": round(votes / total, 2),
+        "matched_cases": votes,
+        "severity_counts": counts,
     }

@@ -26,6 +26,7 @@ from app.api.schemas import (
     MaterialityCreate,
     RiskDelete,
     RiskReviewDecision,
+    RiskSeverity,
     RiskTransition,
 )
 from app.domain.models import (
@@ -35,13 +36,14 @@ from app.domain.models import (
     MappingStatus,
     MaterialityProfile,
     RiskMemoryEntry,
+    RiskLevel,
     RiskStatus,
 )
 from app.domain.repository import repository
 from app.core.security import CurrentUser, Role, current_user, require_roles
 from app.core.database import check_database
 from app.services.risk_timestamps import latest_analysis_at
-from app.services.risk_review import REVIEW_DECISIONS, current_review_decision, is_visible_in_risk_lists, recommend_review_decision
+from app.services.risk_review import REVIEW_DECISIONS, RISK_SEVERITIES, current_review_decision, current_risk_severity, is_visible_in_risk_lists, recommend_review_decision, recommend_risk_severity
 from app.services.import_pipeline import normalize_general_ledger, normalize_settlement
 from app.services.mapping import propose_mapping
 from app.services.orchestrator import process_journals
@@ -932,6 +934,11 @@ def _risk_review_payload(risk: Any) -> dict[str, Any]:
             event, lines, history,
             issue_types=issue_types_for(risk),
         ) if event else None,
+        "severity": current_risk_severity(repository.risk_memory.get(risk.id, []), risk.level.value),
+        "severity_recommendation": recommend_risk_severity(
+            event, lines, history,
+            issue_types=issue_types_for(risk),
+        ) if event else None,
     }
 
 
@@ -1089,6 +1096,32 @@ def set_risk_review_decision(
             reason=decision,
         )
     )
+    return encode(_risk_review_payload(risk))
+
+
+@router.post("/risks/{risk_id}/severity")
+def set_risk_severity(
+    risk_id: UUID,
+    payload: RiskSeverity,
+    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+) -> Any:
+    risk = _entity(repository.risks, risk_id, "risk")
+    severity = payload.severity.upper()
+    if severity not in RISK_SEVERITIES:
+        raise HTTPException(422, "severity must be HIGH, MEDIUM, or LOW")
+    if payload.expected_version != risk.row_version:
+        raise HTTPException(409, "risk has been updated; refresh and try again")
+    risk.level = RiskLevel(severity)
+    risk.row_version += 1
+    repository.save(risk)
+    repository.append_memory(RiskMemoryEntry(
+        risk_id=risk.id, entry_type="RISK_SEVERITY", summary=severity,
+        actor=user.user_id, metadata={"severity": severity},
+    ))
+    repository.append_audit(AuditLogEntry(
+        action="RISK_SEVERITY_SET", resource_type="Risk", resource_id=str(risk.id),
+        actor=user.user_id, company_id=risk.company_id, reason=severity,
+    ))
     return encode(_risk_review_payload(risk))
 
 

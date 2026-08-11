@@ -5,6 +5,8 @@ import { api, Risk } from '../api'
 
 const decisions = ['CHECK', 'PENDING', 'PASS'] as const
 const labels = { CHECK: 'Check', PENDING: 'Pending', PASS: 'Pass' }
+const severities = ['HIGH', 'MEDIUM', 'LOW'] as const
+const severityLabels = { HIGH: 'High', MEDIUM: 'Medium', LOW: 'Low' }
 
 export function RiskReviewDecisionCard({ risk }: { risk: Risk }) {
   const queryClient = useQueryClient()
@@ -18,7 +20,16 @@ export function RiskReviewDecisionCard({ risk }: { risk: Risk }) {
       else queryClient.setQueryData(['risk', risk.id], updated)
     },
   })
+  const severityMutation = useMutation({
+    mutationFn: async (severity: typeof severities[number]) => (await api.post<Risk>(`/risks/${risk.id}/severity`, { severity, expected_version: risk.row_version })).data,
+    onSuccess: async (updated) => {
+      await queryClient.invalidateQueries({ queryKey: ['risks'] })
+      await queryClient.invalidateQueries({ queryKey: ['risk-reviews'] })
+      queryClient.setQueryData(['risk', risk.id], updated)
+    },
+  })
   const current = risk.review_decision ?? 'CHECK'
+  const severity = risk.severity ?? risk.level as typeof severities[number]
   return <Card variant="outlined" sx={{ borderRadius: 3 }}><CardContent sx={{ p: 2.5 }}>
     <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={2} alignItems={{ sm: 'center' }}>
       <Box><Typography fontWeight={700}>검토 분류</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: .5 }}>Pass를 선택하면 리스크 관리와 리스크 검토 목록에서 숨겨집니다.</Typography></Box>
@@ -31,5 +42,14 @@ export function RiskReviewDecisionCard({ risk }: { risk: Risk }) {
     </Stack>
     {mutation.isError && <Alert severity="error" sx={{ mt: 2 }}>검토 분류 저장에 실패했습니다. 새로고침 후 다시 시도해 주세요.</Alert>}
     {risk.review_recommendation?.decision_counts && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>누적 결정: Check {risk.review_recommendation.decision_counts.CHECK}건 · Pending {risk.review_recommendation.decision_counts.PENDING}건 · Pass {risk.review_recommendation.decision_counts.PASS}건</Typography>}
+    <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={2} alignItems={{ sm: 'center' }} sx={{ mt: 3, pt: 2, borderTop: '1px solid #E5E7EB' }}>
+      <Box><Typography fontWeight={700}>심각도</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: .5 }}>사용자 선택값을 같은 회계이슈 유형의 누적 사례와 비교해 추천합니다.</Typography></Box>
+      <ButtonGroup disabled={severityMutation.isPending}>{severities.map((item) => <Button key={item} variant={severity === item ? 'contained' : 'outlined'} color={item === 'HIGH' ? 'error' : item === 'MEDIUM' ? 'warning' : 'success'} onClick={() => severityMutation.mutate(item)}>{severityLabels[item]}</Button>)}</ButtonGroup>
+    </Stack>
+    <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 2 }}><Chip size="small" label={`현재: ${severityLabels[severity]}`} />
+      {risk.severity_recommendation && <Typography variant="body2" color="text.secondary">추천: {severityLabels[risk.severity_recommendation.severity]} (유사 사례 {risk.severity_recommendation.matched_cases}건, 신뢰도 {Math.round(risk.severity_recommendation.confidence * 100)}%)</Typography>}
+    </Stack>
+    {severityMutation.isError && <Alert severity="error" sx={{ mt: 2 }}>심각도 저장에 실패했습니다. 새로고침 후 다시 시도해 주세요.</Alert>}
+    {risk.severity_recommendation?.severity_counts && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>누적 선택: High {risk.severity_recommendation.severity_counts.HIGH}건 · Medium {risk.severity_recommendation.severity_counts.MEDIUM}건 · Low {risk.severity_recommendation.severity_counts.LOW}건</Typography>}
   </CardContent></Card>
 }
