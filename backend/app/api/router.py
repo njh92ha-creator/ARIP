@@ -1313,10 +1313,9 @@ def get_event(event_id: UUID) -> Any:
 def set_risk_review_decision(
     risk_id: UUID,
     payload: RiskReviewDecision,
-    user: CurrentUser = Depends(require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
     risk = _entity(repository.risks, risk_id, "risk")
-    _require_review_company(user, risk.company_id)
     decision = payload.decision.upper()
     if decision not in REVIEW_DECISIONS:
         raise HTTPException(422, "decision must be CHECK, PENDING, or PASS")
@@ -1350,10 +1349,9 @@ def set_risk_review_decision(
 def set_risk_severity(
     risk_id: UUID,
     payload: RiskSeverity,
-    user: CurrentUser = Depends(require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
     risk = _entity(repository.risks, risk_id, "risk")
-    _require_review_company(user, risk.company_id)
     severity = payload.severity.upper()
     if severity not in RISK_SEVERITIES:
         raise HTTPException(422, "severity must be HIGH, MEDIUM, or LOW")
