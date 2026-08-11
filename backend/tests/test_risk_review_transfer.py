@@ -2,7 +2,10 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
+from fastapi.testclient import TestClient
 
+from app.api import router as api_router
+from app.main import app
 from app.domain.models import (
     AccountingEvent,
     AnalysisRoute,
@@ -50,6 +53,23 @@ def make_source_risk(repository: InMemoryRepository) -> Risk:
             ),
         )
     )
+
+
+@pytest.fixture
+def review_api(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, InMemoryRepository, Risk]:
+    """Exercise routes against clean state without touching runtime persistence."""
+    isolated_repository = InMemoryRepository(persistent=False)
+    monkeypatch.setattr(api_router, "repository", isolated_repository)
+    return TestClient(app), isolated_repository, make_source_risk(isolated_repository)
+
+
+def transfer_to_review(client: TestClient, source: Risk) -> dict[str, object]:
+    response = client.post(
+        f"/api/v1/risks/{source.id}/transfer-to-review",
+        json={"review_decision": "CHECK", "severity": "HIGH"},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
 
 
 def test_create_review_case_copies_the_source_analysis_snapshot() -> None:
@@ -155,3 +175,112 @@ def test_removing_a_company_removes_its_review_case_answers_and_attachments() ->
     assert review_case.id not in repository.risk_review_cases
     assert answer.id not in repository.risk_review_answers
     assert attachment.id not in repository.risk_review_attachments
+
+
+@pytest.mark.parametrize("payload", [{"severity": "HIGH"}, {"review_decision": "CHECK"}])
+def test_transfer_requires_an_explicit_review_decision_and_severity(
+    review_api: tuple[TestClient, InMemoryRepository, Risk], payload: dict[str, str]
+) -> None:
+    client, _, source = review_api
+
+    response = client.post(f"/api/v1/risks/{source.id}/transfer-to-review", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_transfer_is_idempotent_and_hides_the_source_from_risk_lists(
+    review_api: tuple[TestClient, InMemoryRepository, Risk]
+) -> None:
+    client, repository, source = review_api
+
+    review_case = transfer_to_review(client, source)
+    repeated = transfer_to_review(client, source)
+
+    assert review_case["id"] == repeated["id"]
+    assert review_case["risk_code"] == source.risk_code
+    assert review_case["package"]["summary"] == source.package.summary
+    assert [entry.entry_type for entry in repository.risk_memory[source.id]].count("RISK_TRANSFERRED") == 1
+    for path in (
+        "/api/v1/risks",
+        "/api/v1/settings/risk-management",
+        "/api/v1/risk-reviews",
+    ):
+        response = client.get(path, params={"company_id": str(source.company_id)})
+        assert response.status_code == 200
+        assert str(source.id) not in {item.get("id") for item in response.json()}
+
+
+def test_review_case_saves_answers_and_updates_decision_and_severity(
+    review_api: tuple[TestClient, InMemoryRepository, Risk]
+) -> None:
+    client, _, source = review_api
+    review_case = transfer_to_review(client, source)
+    case_id = review_case["id"]
+
+    answer = client.put(
+        f"/api/v1/risk-reviews/{case_id}/answers",
+        json={"question": "What is the repayment date?", "answer": "2027-01-31"},
+    )
+    decision = client.post(
+        f"/api/v1/risk-reviews/{case_id}/review-decision",
+        json={"decision": "PENDING"},
+    )
+    severity = client.post(
+        f"/api/v1/risk-reviews/{case_id}/severity",
+        json={"severity": "LOW"},
+    )
+    detail = client.get(f"/api/v1/risk-reviews/{case_id}")
+
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["answer"] == "2027-01-31"
+    assert decision.status_code == 200, decision.text
+    assert decision.json()["review_decision"] == "PENDING"
+    assert severity.status_code == 200, severity.text
+    assert severity.json()["severity"] == "LOW"
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["answers"] == [answer.json()]
+
+
+def test_review_case_uploads_downloads_and_deletes_attachments(
+    review_api: tuple[TestClient, InMemoryRepository, Risk]
+) -> None:
+    client, _, source = review_api
+    review_case = transfer_to_review(client, source)
+    case_id = review_case["id"]
+
+    upload = client.post(
+        f"/api/v1/risk-reviews/{case_id}/attachments",
+        files={"file": ("evidence.txt", b"audit evidence", "text/plain")},
+    )
+
+    assert upload.status_code == 200, upload.text
+    attachment = upload.json()
+    assert attachment["filename"] == "evidence.txt"
+    download = client.get(f"/api/v1/risk-reviews/{case_id}/attachments/{attachment['id']}/download")
+    assert download.status_code == 200
+    assert download.content == b"audit evidence"
+    deleted = client.delete(f"/api/v1/risk-reviews/{case_id}/attachments/{attachment['id']}")
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["deleted"] is True
+
+
+def test_review_case_rejects_an_eleventh_attachment(
+    review_api: tuple[TestClient, InMemoryRepository, Risk]
+) -> None:
+    client, _, source = review_api
+    review_case = transfer_to_review(client, source)
+    case_id = review_case["id"]
+
+    for index in range(10):
+        response = client.post(
+            f"/api/v1/risk-reviews/{case_id}/attachments",
+            files={"file": (f"evidence-{index}.txt", b"x", "text/plain")},
+        )
+        assert response.status_code == 200, response.text
+
+    response = client.post(
+        f"/api/v1/risk-reviews/{case_id}/attachments",
+        files={"file": ("too-many.txt", b"x", "text/plain")},
+    )
+
+    assert response.status_code == 422

@@ -60,6 +60,24 @@ class RiskSeverity(BaseModel):
     expected_version: int = 1
 
 
+class RiskReviewTransfer(BaseModel):
+    review_decision: str
+    severity: str
+
+
+class RiskReviewAnswerUpdate(BaseModel):
+    question: str
+    answer: str
+
+
+class RiskReviewCaseDecision(BaseModel):
+    decision: str
+
+
+class RiskReviewCaseSeverity(BaseModel):
+    severity: str
+
+
 class RiskDelete(BaseModel):
     expected_version: int = 1
 

@@ -43,7 +43,14 @@ def current_risk_severity(entries: Iterable[RiskMemoryEntry], default: str) -> s
 
 
 def is_visible_in_risk_lists(entries: Iterable[RiskMemoryEntry]) -> bool:
-    return current_review_decision(entries) != "PASS"
+    return (
+        current_review_decision(entries) != "PASS"
+        and not is_transferred_to_review(entries)
+    )
+
+
+def is_transferred_to_review(entries: Iterable[RiskMemoryEntry]) -> bool:
+    return any(entry.entry_type == "RISK_TRANSFERRED" for entry in entries)
 
 
 def _features(event: AccountingEvent, lines: Iterable[JournalLine]) -> set[str]:

@@ -25,7 +25,11 @@ from app.api.schemas import (
     MappingApprove,
     MaterialityCreate,
     RiskDelete,
+    RiskReviewAnswerUpdate,
+    RiskReviewCaseDecision,
+    RiskReviewCaseSeverity,
     RiskReviewDecision,
+    RiskReviewTransfer,
     RiskSeverity,
     RiskTransition,
 )
@@ -37,13 +41,22 @@ from app.domain.models import (
     MaterialityProfile,
     RiskMemoryEntry,
     RiskLevel,
+    RiskReviewAttachment,
     RiskStatus,
 )
 from app.domain.repository import repository
 from app.core.security import CurrentUser, Role, current_user, require_roles
 from app.core.database import check_database
 from app.services.risk_timestamps import latest_analysis_at
-from app.services.risk_review import REVIEW_DECISIONS, RISK_SEVERITIES, current_review_decision, current_risk_severity, is_visible_in_risk_lists, recommend_review_decision, recommend_risk_severity
+from app.services.risk_review import (
+    REVIEW_DECISIONS,
+    RISK_SEVERITIES,
+    current_review_decision,
+    current_risk_severity,
+    is_visible_in_risk_lists,
+    recommend_review_decision,
+    recommend_risk_severity,
+)
 from app.services.import_pipeline import normalize_general_ledger, normalize_settlement
 from app.services.mapping import propose_mapping
 from app.services.orchestrator import process_journals
@@ -950,24 +963,175 @@ def _risk_review_payload(risk: Any) -> dict[str, Any]:
 def list_risk_reviews(company_id: UUID) -> Any:
     return encode(
         [
-            _risk_review_payload(risk)
-            for risk in repository.risks.values()
-            if risk.company_id == company_id
-            and current_review_decision(repository.risk_memory.get(risk.id, [])) in {"CHECK", "PENDING"}
+            _review_case_payload(review_case)
+            for review_case in repository.risk_review_cases.values()
+            if review_case.company_id == company_id
         ]
     )
 
 
 @router.get("/settings/risk-management")
 def list_risk_management(company_id: UUID) -> Any:
-    """Administrative view including Pass items, used for permanent deletion."""
+    """Administrative view of source analyses which remain eligible for management."""
     return encode(
         [
             _risk_review_payload(risk)
             for risk in repository.risks.values()
             if risk.company_id == company_id
+            and is_visible_in_risk_lists(repository.risk_memory.get(risk.id, []))
         ]
     )
+
+
+def _review_case_payload(review_case: Any) -> dict[str, Any]:
+    payload = encode(review_case)
+    payload.pop("source_risk_id", None)
+    payload["answers"] = encode(repository.answers_for_review_case(review_case.id))
+    payload["attachments"] = [
+        {
+            "id": str(attachment.id),
+            "filename": attachment.filename,
+            "content_type": attachment.content_type,
+            "size_bytes": attachment.size_bytes,
+            "created_at": encode(attachment.created_at),
+        }
+        for attachment in repository.attachments_for_review_case(review_case.id)
+    ]
+    return payload
+
+
+@router.post("/risks/{risk_id}/transfer-to-review")
+def transfer_risk_to_review(
+    risk_id: UUID,
+    payload: RiskReviewTransfer,
+    user: CurrentUser = Depends(
+        require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
+    ),
+) -> Any:
+    risk = _entity(repository.risks, risk_id, "risk")
+    decision = payload.review_decision.upper()
+    severity = payload.severity.upper()
+    existing = repository.review_case_for_source_risk(risk.id)
+    try:
+        review_case = repository.create_review_case(
+            risk, review_decision=decision, severity=severity
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if existing is None:
+        repository.append_memory(
+            RiskMemoryEntry(
+                risk_id=risk.id,
+                entry_type="RISK_TRANSFERRED",
+                summary=f"Transferred to review case {risk.risk_code}",
+                actor=user.user_id,
+                metadata={"review_case_id": str(review_case.id), "risk_code": risk.risk_code},
+            )
+        )
+        repository.append_audit(
+            AuditLogEntry(
+                action="RISK_TRANSFERRED",
+                resource_type="Risk",
+                resource_id=str(risk.id),
+                actor=user.user_id,
+                company_id=risk.company_id,
+                reason=decision,
+            )
+        )
+    return _review_case_payload(review_case)
+
+
+@router.get("/risk-reviews/{review_case_id}")
+def get_risk_review_case(review_case_id: UUID) -> Any:
+    return _review_case_payload(
+        _entity(repository.risk_review_cases, review_case_id, "risk review case")
+    )
+
+
+@router.put("/risk-reviews/{review_case_id}/answers")
+def save_risk_review_answer(
+    review_case_id: UUID, payload: RiskReviewAnswerUpdate
+) -> Any:
+    _entity(repository.risk_review_cases, review_case_id, "risk review case")
+    return encode(
+        repository.upsert_review_answer(
+            review_case_id, question=payload.question, answer=payload.answer
+        )
+    )
+
+
+@router.post("/risk-reviews/{review_case_id}/review-decision")
+def set_risk_review_case_decision(
+    review_case_id: UUID, payload: RiskReviewCaseDecision
+) -> Any:
+    review_case = _entity(repository.risk_review_cases, review_case_id, "risk review case")
+    decision = payload.decision.upper()
+    if decision not in REVIEW_DECISIONS:
+        raise HTTPException(422, "decision must be CHECK, PENDING, or PASS")
+    review_case.review_decision = decision
+    repository.save(review_case)
+    return _review_case_payload(review_case)
+
+
+@router.post("/risk-reviews/{review_case_id}/severity")
+def set_risk_review_case_severity(
+    review_case_id: UUID, payload: RiskReviewCaseSeverity
+) -> Any:
+    review_case = _entity(repository.risk_review_cases, review_case_id, "risk review case")
+    severity = payload.severity.upper()
+    if severity not in RISK_SEVERITIES:
+        raise HTTPException(422, "severity must be HIGH, MEDIUM, or LOW")
+    review_case.severity = severity
+    repository.save(review_case)
+    return _review_case_payload(review_case)
+
+
+@router.post("/risk-reviews/{review_case_id}/attachments")
+def add_risk_review_attachment(
+    review_case_id: UUID, file: UploadFile = File(...)
+) -> Any:
+    _entity(repository.risk_review_cases, review_case_id, "risk review case")
+    attachment = RiskReviewAttachment(
+        review_case_id=review_case_id,
+        filename=file.filename or "attachment",
+        content_type=file.content_type or "application/octet-stream",
+        size_bytes=0,
+        content=file.file.read(),
+    )
+    attachment.size_bytes = len(attachment.content)
+    try:
+        stored = repository.add_review_attachment(attachment)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {
+        "id": str(stored.id),
+        "filename": stored.filename,
+        "content_type": stored.content_type,
+        "size_bytes": stored.size_bytes,
+        "created_at": encode(stored.created_at),
+    }
+
+
+@router.get("/risk-reviews/{review_case_id}/attachments/{attachment_id}/download")
+def download_risk_review_attachment(review_case_id: UUID, attachment_id: UUID) -> Response:
+    _entity(repository.risk_review_cases, review_case_id, "risk review case")
+    attachment = repository.risk_review_attachments.get(attachment_id)
+    if attachment is None or attachment.review_case_id != review_case_id:
+        raise HTTPException(404, "attachment not found")
+    return Response(
+        content=attachment.content,
+        media_type=attachment.content_type,
+        headers={"Content-Disposition": f'attachment; filename="{attachment.filename}"'},
+    )
+
+
+@router.delete("/risk-reviews/{review_case_id}/attachments/{attachment_id}")
+def delete_risk_review_attachment(review_case_id: UUID, attachment_id: UUID) -> Any:
+    try:
+        repository.remove_review_attachment(review_case_id, attachment_id)
+    except KeyError as exc:
+        raise HTTPException(404, "attachment not found") from exc
+    return {"deleted": True}
 
 
 @router.get("/risks/{risk_id}")
