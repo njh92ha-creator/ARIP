@@ -13,6 +13,7 @@ from uuid import uuid4
 from app.domain.models import AccountingEvent, JournalLine, RiskPackage
 from app.services.ai_risk_analysis import (
     approved_reference_context,
+    assign_risk_code,
     build_event_facts,
     risk_from_ai_analysis,
 )
@@ -136,6 +137,23 @@ class AiRiskFactsTest(unittest.TestCase):
 
         self.assertEqual(facts["journalLines"][0]["documentNumber"], self.lines[0].document_number)
         self.assertEqual(facts["journalLines"][0]["postingDate"], self.lines[0].posting_date.isoformat())
+
+    def test_risk_code_uses_account_class_date_and_three_digit_sequence(self) -> None:
+        analysis = {
+            "riskSummary": "Borrowing classification requires review.",
+            "issueTypes": ["Borrowing classification"],
+            "relatedAccounts": ["단기차입금"],
+            "expectedQuestions": [], "evidenceChecklist": [], "responseGuidance": [],
+            "referenceIds": [], "missingFacts": [], "uncertainty": "MEDIUM",
+        }
+        first = risk_from_ai_analysis(self.event, None, analysis, [])
+        second = risk_from_ai_analysis(self.event, None, analysis, [])
+        assert first is not None and second is not None
+        repo = SimpleNamespace(risks={})
+
+        self.assertEqual(assign_risk_code(repo, first, self.lines), "LI_20250604_001")
+        repo.risks[first.id] = first
+        self.assertEqual(assign_risk_code(repo, second, self.lines), "LI_20250604_002")
 
     def test_reference_context_excludes_pending_documents(self) -> None:
         candidates = {

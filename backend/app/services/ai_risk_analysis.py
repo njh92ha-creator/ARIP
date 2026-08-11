@@ -16,6 +16,51 @@ from app.domain.models import (
 )
 
 
+ACCOUNT_CLASS_PREFIX = {
+    "1": "AS",
+    "2": "LI",
+    "3": "EQ",
+    "4": "SA",
+    "5": "CO",
+    "6": "CO",
+}
+
+
+def assign_risk_code(repo: Any, risk: Risk, lines: list[JournalLine]) -> str:
+    """Assign a business ID without replacing the internal UUID relation key."""
+    related = {value.strip() for value in risk.package.related_accounts if value.strip()}
+    representative = next(
+        (
+            line
+            for line in lines
+            if line.account_code in related or line.account_name in related
+        ),
+        lines[0] if lines else None,
+    )
+    if representative is None:
+        return ""
+
+    account_class = ACCOUNT_CLASS_PREFIX.get(representative.account_code.strip()[:1])
+    if not account_class:
+        return ""
+
+    occurrence_date = representative.posting_date.strftime("%Y%m%d")
+    code_prefix = f"{account_class}_{occurrence_date}_"
+    used_sequences = []
+    for existing in getattr(repo, "risks", {}).values():
+        if existing.company_id != risk.company_id:
+            continue
+        risk_code = getattr(existing, "risk_code", "")
+        if not risk_code.startswith(code_prefix):
+            continue
+        try:
+            used_sequences.append(int(risk_code.rsplit("_", 1)[1]))
+        except (IndexError, ValueError):
+            continue
+    risk.risk_code = f"{code_prefix}{max(used_sequences, default=0) + 1:03d}"
+    return risk.risk_code
+
+
 def build_event_facts(
     event: AccountingEvent, lines: list[JournalLine], *, same_type_voucher_count: int = 0
 ) -> dict[str, Any]:
@@ -172,6 +217,7 @@ def risk_from_ai_analysis(
     return Risk(
         company_id=event.company_id,
         event_id=event.id,
+        risk_code="",
         title=title,
         statement=statement,
         level=level,

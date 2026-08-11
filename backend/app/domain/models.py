@@ -222,6 +222,7 @@ class Risk:
     score: int
     route: AnalysisRoute
     package: RiskPackage
+    risk_code: str = field(default="", kw_only=True)
     status: RiskStatus = RiskStatus.OPEN
     materiality_level: str = "LOW"
     closing_analysis_set_id: UUID | None = None

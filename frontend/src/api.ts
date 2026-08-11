@@ -19,6 +19,7 @@ export interface Company {
 
 export interface Risk {
   id: string
+  risk_code?: string
   title: string
   statement: string
   level: string

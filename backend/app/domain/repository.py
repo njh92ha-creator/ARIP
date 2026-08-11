@@ -39,6 +39,8 @@ def hydrate_legacy_object(obj: Any) -> None:
             object.__setattr__(obj, "prior_amount", None)
     if isinstance(obj, (Risk, RiskPackage)):
         package = obj.package if isinstance(obj, Risk) else obj
+        if isinstance(obj, Risk) and not hasattr(obj, "risk_code"):
+            object.__setattr__(obj, "risk_code", "")
         defaults = {
             "related_accounts": [],
             "voucher_count": 0,

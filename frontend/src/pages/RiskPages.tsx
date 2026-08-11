@@ -86,7 +86,7 @@ export function RiskListPage() {
           {isLoading ? <TableRow><TableCell colSpan={7} align="center" sx={{ py: 8 }}><CircularProgress size={28} /></TableCell></TableRow> :
             data.length === 0 ? <TableRow><TableCell colSpan={7} align="center" sx={{ py: 8, color: 'text.secondary' }}>분석으로 생성된 리스크가 없습니다.</TableCell></TableRow> :
             data.map((risk) => <TableRow key={risk.id} hover>
-              <TableCell><Typography component={Link} to={`/risks/${risk.id}`} sx={{ color: primary, fontWeight: 700, textDecoration: 'none' }}>{risk.id}</Typography></TableCell>
+              <TableCell><Typography component={Link} to={`/risks/${risk.id}`} sx={{ color: primary, fontWeight: 700, textDecoration: 'none' }}>{risk.risk_code || '-'}</Typography></TableCell>
               <TableCell><Typography component={Link} to={`/risks/${risk.id}`} sx={{ color: 'text.primary', fontWeight: 600, textDecoration: 'none' }}>{risk.title}</Typography><Typography color="text.secondary" fontSize={12} sx={{ mt: .5 }}>{risk.statement}</Typography></TableCell>
               <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatAnalysisDate(risk.analyzed_at)}</TableCell><TableCell>{risk.score}</TableCell><TableCell><SeverityPill value={risk.level} /></TableCell><TableCell>{risk.status}</TableCell><TableCell>{risk.route}</TableCell>
             </TableRow>)}
@@ -122,7 +122,7 @@ export function RiskDetailPage() {
   const findings = risk.crossFindings ?? []
   return <Box>
     <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} sx={{ mb: 3 }}>
-      <Box><Typography variant="h4">{risk.title}</Typography><Stack direction="row" spacing={1} sx={{ mt: 1.25 }}><SeverityPill value={risk.level} /><Chip label={risk.status} size="small" /><Chip label={risk.route} size="small" /></Stack></Box>
+      <Box><Typography variant="h4">{risk.title}</Typography><Typography sx={{ ...labelSx, mt: .5 }}>리스크 ID · {risk.risk_code || '-'}</Typography><Stack direction="row" spacing={1} sx={{ mt: 1.25 }}><SeverityPill value={risk.level} /><Chip label={risk.status} size="small" /><Chip label={risk.route} size="small" /></Stack></Box>
       <Box sx={{ textAlign: { md: 'right' } }}><Typography sx={labelSx}>분석 점수</Typography><Typography sx={{ fontSize: 32, fontWeight: 700, color: primary }}>{risk.score}</Typography></Box>
     </Stack>
     <Stack spacing={3}>

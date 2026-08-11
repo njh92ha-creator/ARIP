@@ -8,6 +8,7 @@ from app.ai.provider import AnalysisProvider, provider_from_settings
 from app.core.config import settings
 from app.domain.models import AnalysisEventResult, AuditLogEntry, RiskMemoryEntry, utcnow
 from app.services.ai_risk_analysis import (
+    assign_risk_code,
     build_event_facts,
     risk_from_ai_analysis,
 )
@@ -201,6 +202,8 @@ def process_journals(
                 risk = None
                 _save_event_result(repo, event, status="FAILED", attempts=locals().get("attempts", 1), duration_ms=locals().get("duration_ms", 0), error=exc)
         if risk:
+            if not risk.risk_code:
+                assign_risk_code(repo, risk, cluster)
             risk.closing_analysis_set_id = event.closing_analysis_set_id
             risk.cross_finding_ids = []
             risk.package.cross_finding_ids = []
