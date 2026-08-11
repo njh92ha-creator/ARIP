@@ -11,8 +11,8 @@ test('knowledge table renders only the current uploaded documents', async () => 
   const tableEnd = source.indexOf('function StatusChip', tableStart)
   const table = source.slice(tableStart, tableEnd)
 
-  assert.match(settings, /<KnowledgeTable documents=\{candidateItems\}/)
-  assert.match(table, /function KnowledgeTable\(\{ documents \}/)
+  assert.match(settings, /<KnowledgeTable\s+documents=\{candidateItems\}/)
+  assert.match(table, /function KnowledgeTable\(\{\s+documents,/)
   assert.doesNotMatch(table, /const rows = \[/)
   assert.doesNotMatch(table, /K-IFRS/)
 })
