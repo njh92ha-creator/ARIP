@@ -169,6 +169,7 @@ class JournalLine:
     contract_code: str = ""
     vendor_code: str = ""
     customer_code: str = ""
+    source_filename: str = ""
     source_hash: str = ""
     closing_analysis_set_id: UUID | None = None
     id: UUID = field(default_factory=uuid4)

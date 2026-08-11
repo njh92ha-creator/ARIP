@@ -63,6 +63,7 @@ def normalize_general_ledger(
     company_id: UUID,
     profile: MappingProfile,
     seen_hashes: set[str] | None = None,
+    source_filename: str = "",
 ) -> tuple[list[JournalLine], ReconciliationResult]:
     if profile.status.value != "APPROVED":
         raise ValueError("approved mapping profile required")
@@ -109,6 +110,7 @@ def normalize_general_ledger(
                 fingerprint = "|".join(
                     [
                         str(company_id),
+                        source_filename,
                         document,
                         str(row_number),
                         posting.isoformat(),
@@ -139,6 +141,7 @@ def normalize_general_ledger(
                     contract_code=str(value(row, "contract_code")).strip(),
                     vendor_code=str(value(row, "vendor_code")).strip(),
                     customer_code=str(value(row, "customer_code")).strip(),
+                    source_filename=source_filename,
                     source_hash=source_hash,
                 )
                 lines.append(line)

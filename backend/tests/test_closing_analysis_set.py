@@ -37,6 +37,21 @@ class ClosingAnalysisSetTest(unittest.TestCase):
             ["JE-NEW"],
         )
 
+    def test_different_ledger_filenames_are_added_without_replacing_each_other(self) -> None:
+        repo = InMemoryRepository(persistent=False)
+        company = repo.save(CompanySettings("P001", "Test Company", "Manufacturing"))
+        closing_set = create_closing_analysis_set(repo, company.id, 2025, 6)
+        first = JournalLine(company_id=company.id, source_row=1, document_number="JE-A", posting_date=date(2025, 6, 4), account_code="1000", account_name="Cash", local_amount=Decimal("100"), debit_credit_indicator="D", fiscal_year=2025, fiscal_period=6, source_hash="a", source_filename="ledger-a.xlsx")
+        second = JournalLine(company_id=company.id, source_row=1, document_number="JE-B", posting_date=date(2025, 6, 4), account_code="2000", account_name="Debt", local_amount=Decimal("100"), debit_credit_indicator="C", fiscal_year=2025, fiscal_period=6, source_hash="b", source_filename="ledger-b.xlsx")
+
+        attach_general_ledger(repo, closing_set, [first])
+        attach_general_ledger(repo, closing_set, [second])
+
+        self.assertEqual(
+            {line.document_number for line in repo.lines_for_set(closing_set.id)},
+            {"JE-A", "JE-B"},
+        )
+
     def test_legacy_settlement_without_period_values_is_skipped_without_crashing(self) -> None:
         repo = InMemoryRepository(persistent=False)
         company = repo.save(CompanySettings("P001", "Test Company", "Manufacturing"))
@@ -113,9 +128,42 @@ class ClosingAnalysisSetTest(unittest.TestCase):
         self.assertEqual(result["qualifiedAccounts"], 1)
         self.assertEqual(result["events"], 1)
         self.assertEqual(len(provider.facts), 1)
-        self.assertEqual(provider.facts[0]["materialityVariances"][0]["accountCode"], "1000")
-        self.assertEqual(provider.facts[0]["materialityVariances"][0]["difference"], "200")
-        self.assertEqual(provider.facts[0]["materialityVariances"][0]["absoluteDifference"], "200")
+        self.assertNotIn("materialityVariances", provider.facts[0])
+
+    def test_qualified_account_does_not_analyze_a_sub_materiality_voucher(self) -> None:
+        repo = InMemoryRepository(persistent=False)
+        company = repo.save(CompanySettings("P001", "Test Company", "Manufacturing"))
+        repo.save(MaterialityProfile(
+            company_id=company.id, name="Default", benchmark="TOTAL_ASSETS",
+            overall_materiality=Decimal("500"), performance_materiality=Decimal("100"),
+            trivial_threshold=Decimal("10"), effective_from=date(2025, 1, 1), status="APPROVED",
+        ))
+        closing_set = create_closing_analysis_set(repo, company.id, 2025, 6)
+        lines = [
+            JournalLine(company_id=company.id, source_row=1, document_number="JE-SMALL", posting_date=date(2025, 6, 4), account_code="1000", account_name="Cash", local_amount=Decimal("80"), debit_credit_indicator="D", fiscal_year=2025, fiscal_period=6, source_hash="small-cash"),
+            JournalLine(company_id=company.id, source_row=2, document_number="JE-SMALL", posting_date=date(2025, 6, 4), account_code="2100", account_name="Borrowing", local_amount=Decimal("80"), debit_credit_indicator="C", fiscal_year=2025, fiscal_period=6, source_hash="small-borrowing"),
+        ]
+        balances = [
+            SettlementBalance(company_id=company.id, fiscal_year=2025, fiscal_period=6, account_code="1000", account_name="Cash", category="ASSET", amount=Decimal("300"), current_amount=Decimal("300"), prior_amount=Decimal("0"), measurement_basis="ENDING_BALANCE"),
+        ]
+
+        class CapturingProvider:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def analyze(self, event_facts, references):
+                self.calls += 1
+                return {"riskSummary": "unused", "issueTypes": ["unused"], "expectedQuestions": [], "evidenceChecklist": [], "responseGuidance": [], "referenceIds": [], "missingFacts": [], "uncertainty": "MEDIUM"}
+
+        provider = CapturingProvider()
+        result = analyze_closing_analysis_set(
+            repo, closing_set.id, lines=lines, settlement_balances=balances,
+            actor="test", analysis_provider=provider,
+        )
+
+        self.assertEqual(result["qualifiedAccounts"], 1)
+        self.assertEqual(result["events"], 0)
+        self.assertEqual(provider.calls, 0)
     def test_analysis_set_is_scoped_only_to_company(self) -> None:
         repo = InMemoryRepository(persistent=False)
         company = repo.save(CompanySettings("P001", "Test Company", "Manufacturing"))

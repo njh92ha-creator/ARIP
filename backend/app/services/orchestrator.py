@@ -89,9 +89,17 @@ def process_journals(
             for account_code, variance in (materiality_variances or {}).items()
             if any(line.account_code == account_code for line in cluster)
         ]
-        if materiality_variances is not None and not relevant_variances:
-            skipped_by_materiality += 1
-            continue
+        if materiality_variances is not None:
+            # The settlement schedule only selects candidate accounts.  A
+            # separate voucher-level threshold prevents one material account
+            # from sending every small voucher involving that account to AI.
+            if (
+                not relevant_variances
+                or materiality is None
+                or candidate.amount <= materiality.performance_materiality
+            ):
+                skipped_by_materiality += 1
+                continue
         candidate.closing_analysis_set_id = cluster[0].closing_analysis_set_id
         prior_event = repo.event_by_hash(candidate.company_id, candidate.event_hash)
         prior_risk = (
@@ -146,7 +154,6 @@ def process_journals(
                     same_type_voucher_count=same_type_voucher_counts[event.event_type],
                 )
                 ai_stage = "build_event_facts"
-                facts["materialityVariances"] = relevant_variances
                 # Closing analysis deliberately relies on the model's K-IFRS
                 # reasoning over the transaction facts only. Uploaded knowledge
                 # documents are not retrieved or sent to the model on this path.

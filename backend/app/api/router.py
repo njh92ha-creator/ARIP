@@ -695,10 +695,16 @@ def attach_closing_general_ledger(
         or profile.status != MappingStatus.APPROVED
     ):
         raise HTTPException(422, "approved general ledger mapping profile required")
+    source_filename = Path(file.filename or "general-ledger.xlsx").name
+    seen_hashes = {
+        line.source_hash
+        for line in repository.lines_for_set(closing_set.id)
+        if line.source_filename != source_filename
+    }
     path = _save_upload(file)
     try:
         lines, reconciliation = normalize_general_ledger(
-            path, closing_set.company_id, profile, set(repository.processed_source_hashes)
+            path, closing_set.company_id, profile, seen_hashes, source_filename
         )
         if not reconciliation.balanced:
             return {

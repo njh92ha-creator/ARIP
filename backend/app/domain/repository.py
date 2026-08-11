@@ -37,6 +37,8 @@ def hydrate_legacy_object(obj: Any) -> None:
             object.__setattr__(obj, "current_amount", None)
         if not hasattr(obj, "prior_amount"):
             object.__setattr__(obj, "prior_amount", None)
+    if isinstance(obj, JournalLine) and not hasattr(obj, "source_filename"):
+        object.__setattr__(obj, "source_filename", "")
     if isinstance(obj, (Risk, RiskPackage)):
         package = obj.package if isinstance(obj, Risk) else obj
         if isinstance(obj, Risk) and not hasattr(obj, "risk_code"):
