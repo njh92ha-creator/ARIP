@@ -47,6 +47,7 @@ from app.services.risk_review import REVIEW_DECISIONS, RISK_SEVERITIES, current_
 from app.services.import_pipeline import normalize_general_ledger, normalize_settlement
 from app.services.mapping import propose_mapping
 from app.services.orchestrator import process_journals
+from app.services.ai_risk_analysis import assign_risk_code
 from app.ai.provider import KIFRS_EVENT_ANALYSIS_PROMPT
 from app.services.knowledge_rag import KnowledgeIndexError, index_document
 from app.services.closing_analysis import (
@@ -911,6 +912,9 @@ def _risk_review_payload(risk: Any) -> dict[str, Any]:
         line for line in repository.journal_lines.values()
         if event and line.id in event.journal_line_ids
     ]
+    if not getattr(risk, "risk_code", "") and lines:
+        assign_risk_code(repository, risk, lines)
+        repository.save(risk)
     history = [
         (
             prior_event,
