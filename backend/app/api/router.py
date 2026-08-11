@@ -49,9 +49,11 @@ from app.ai.provider import KIFRS_EVENT_ANALYSIS_PROMPT
 from app.services.knowledge_rag import KnowledgeIndexError, index_document
 from app.services.closing_analysis import (
     analyze_closing_analysis_set,
+    analyze_queued_closing_event,
     attach_general_ledger,
     attach_settlement_schedule,
     create_closing_analysis_set,
+    queue_closing_analysis_events,
     settlement_balances_from_rows,
 )
 
@@ -359,7 +361,7 @@ def test_ai_connection(
                     "max_tokens": 900 if payload.analysis_prompt else 16,
                     "temperature": 0,
                 },
-                timeout=20.0,
+                timeout=120.0,
             )
         else:
             response = httpx.get(
@@ -762,11 +764,28 @@ def analyze_closing_set(
     user: CurrentUser = Depends(require_roles(Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
     try:
-        return analyze_closing_analysis_set(
+        return queue_closing_analysis_events(
             repository,
             closing_analysis_set_id,
             actor=user.user_id,
-            knowledge_candidates=knowledge_candidates,
+            **_ai_runtime_options(),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/closing-analysis-sets/{closing_analysis_set_id}/analysis-events/{event_id}/analyze")
+def analyze_closing_event(
+    closing_analysis_set_id: UUID,
+    event_id: UUID,
+    user: CurrentUser = Depends(require_roles(Role.CLOSING_MANAGER, Role.ADMIN)),
+) -> Any:
+    try:
+        return analyze_queued_closing_event(
+            repository,
+            closing_analysis_set_id,
+            event_id,
+            actor=user.user_id,
             **_ai_runtime_options(),
         )
     except ValueError as exc:

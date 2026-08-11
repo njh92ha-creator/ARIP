@@ -6,6 +6,7 @@ from typing import Any
 from uuid import UUID
 
 from app.domain.models import (
+    AnalysisEventResult,
     AnalysisRoute,
     ClosingAnalysisSet,
     ClosingAnalysisStatus,
@@ -387,6 +388,102 @@ def _link_variance_to_risks(repo: Any, closing_set: ClosingAnalysisSet) -> int:
         observation.linked_risk_ids = [risk.id for risk in risks_by_account[observation.account_code]]
         repo.save(observation)
     return len(observations)
+
+
+def queue_closing_analysis_events(
+    repo: Any,
+    closing_analysis_set_id: UUID,
+    *,
+    actor: str,
+    **ai_options: Any,
+) -> dict[str, Any]:
+    """Persist eligible event jobs without holding one HTTP request for all AI calls."""
+    closing_set = repo.closing_analysis_sets.get(closing_analysis_set_id)
+    if closing_set is None:
+        raise ValueError("closing analysis set not found")
+    if not closing_set.is_ready:
+        raise ValueError("both general ledger and settlement schedule are required")
+    closing_set.status = ClosingAnalysisStatus.PROCESSING
+    closing_set.updated_at = utcnow()
+    repo.save(closing_set)
+    lines = repo.lines_for_set(closing_set.id)
+    qualified = materiality_qualified_settlement_accounts(
+        repo, closing_set, repo.settlement_for_set(closing_set.id)
+    )
+    prepared = process_journals(
+        repo,
+        lines,
+        actor=actor,
+        external_ai_enabled=False,
+        materiality_variances=qualified,
+    )
+    event_ids = [UUID(event_id) for event_id in prepared["eventIds"]]
+    for event_id in event_ids:
+        event = repo.events[event_id]
+        existing = repo.analysis_event_results.get(event_id)
+        if existing and existing.status == "COMPLETED":
+            continue
+        repo.save(
+            AnalysisEventResult(
+                company_id=event.company_id,
+                event_id=event.id,
+                closing_analysis_set_id=closing_set.id,
+                status="PENDING",
+                attempts=existing.attempts if existing else 0,
+                id=event.id,
+            )
+        )
+    return {
+        "status": "QUEUED",
+        "closingAnalysisSetId": str(closing_set.id),
+        "qualifiedAccounts": len(qualified),
+        "queuedEventIds": [str(event_id) for event_id in event_ids],
+        "skippedByMateriality": prepared["skippedByMateriality"],
+    }
+
+
+def analyze_queued_closing_event(
+    repo: Any,
+    closing_analysis_set_id: UUID,
+    event_id: UUID,
+    *,
+    actor: str,
+    **ai_options: Any,
+) -> dict[str, Any]:
+    """Analyze exactly one queued voucher event and persist its outcome independently."""
+    closing_set = repo.closing_analysis_sets.get(closing_analysis_set_id)
+    event = repo.events.get(event_id)
+    if closing_set is None or event is None or event.closing_analysis_set_id != closing_set.id:
+        raise ValueError("queued analysis event not found")
+    lines = [repo.journal_lines[line_id] for line_id in event.journal_line_ids]
+    qualified = materiality_qualified_settlement_accounts(
+        repo, closing_set, repo.settlement_for_set(closing_set.id)
+    )
+    processing = process_journals(
+        repo,
+        lines,
+        actor=actor,
+        materiality_variances=qualified,
+        selected_event_ids={event.id},
+        **ai_options,
+    )
+    result = repo.analysis_event_results.get(event.id)
+    pending = [
+        item for item in repo.analysis_event_results.values()
+        if item.closing_analysis_set_id == closing_set.id and item.status in {"PENDING", "RETRYING"}
+    ]
+    if not pending:
+        closing_set.status = ClosingAnalysisStatus.COMPLETED
+        closing_set.updated_at = utcnow()
+        repo.save(closing_set)
+    return {
+        "eventId": str(event.id),
+        "status": result.status if result else "NO_RESULT",
+        "attempts": result.attempts if result else 0,
+        "durationMs": result.duration_ms if result else 0,
+        "errorType": result.error_type if result else "",
+        "processing": processing,
+    }
 
 
 def analyze_closing_analysis_set(

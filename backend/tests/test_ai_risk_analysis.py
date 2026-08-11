@@ -16,7 +16,7 @@ from app.services.ai_risk_analysis import (
     build_event_facts,
     risk_from_ai_analysis,
 )
-from app.ai.provider import AiUnavailableError, NvidiaAnalysisProvider
+from app.ai.provider import AiUnavailableError, NvidiaAnalysisProvider, parse_nvidia_json
 from app.services.orchestrator import process_journals
 
 
@@ -36,6 +36,11 @@ class AiRiskPackageTest(unittest.TestCase):
 
 
 class NvidiaTimeoutConfigurationTest(unittest.TestCase):
+    def test_nvidia_json_parser_accepts_a_code_fenced_json_object(self) -> None:
+        parsed = parse_nvidia_json('```json\n{"riskSummary":"검토", "issueTypes":[]}\n```')
+
+        self.assertEqual(parsed["riskSummary"], "검토")
+
     def test_nvidia_analysis_waits_up_to_two_minutes(self) -> None:
         captured: dict[str, object] = {}
 

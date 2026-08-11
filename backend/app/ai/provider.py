@@ -120,6 +120,17 @@ class AiUnavailableError(RuntimeError):
     pass
 
 
+def parse_nvidia_json(content: str) -> dict[str, Any]:
+    """Extract the single JSON object from a NIM response without accepting prose."""
+    candidate = content.strip()
+    if candidate.startswith("```"):
+        candidate = candidate.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    start, end = candidate.find("{"), candidate.rfind("}")
+    if start < 0 or end < start:
+        raise ValueError("NVIDIA response does not contain a JSON object")
+    return json.loads(candidate[start : end + 1])
+
+
 @dataclass(slots=True)
 class DisabledProvider:
     reason: str = "external AI is disabled"
@@ -213,9 +224,7 @@ class NvidiaAnalysisProvider:
             ],
         )
         content = completion.choices[0].message.content or ""
-        if content.startswith("```"):
-            content = content.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-        parsed = json.loads(content)
+        parsed = parse_nvidia_json(content)
         unknown = set(parsed["referenceIds"]) - {str(reference["id"]) for reference in references}
         if unknown:
             raise ValueError(f"model returned unapproved references: {sorted(unknown)}")

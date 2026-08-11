@@ -56,7 +56,8 @@ def process_journals(
     ai_key_env: str | None = None,
     embedding_model: str | None = None,
     materiality_variances: dict[str, dict[str, str]] | None = None,
-) -> dict[str, int]:
+    selected_event_ids: set[Any] | None = None,
+) -> dict[str, Any]:
     for line in lines:
         repo.save(line)
         repo.processed_source_hashes.add(line.source_hash)
@@ -74,6 +75,7 @@ def process_journals(
     created_risks = 0
     retried_events = 0
     skipped_by_materiality = 0
+    processed_event_ids: list[str] = []
     clusters = cluster_journals(lines)
     candidates = [(cluster, construct_event(cluster)) for cluster in clusters]
     same_type_voucher_counts = {
@@ -108,6 +110,8 @@ def process_journals(
             and prior_risk
             and set(prior_event.journal_line_ids) == set(candidate.journal_line_ids)
         )
+        if selected_event_ids is not None and (prior_event is None or prior_event.id not in selected_event_ids):
+            continue
         ai_enabled = (
             analysis_provider is not None
             or settings.enable_external_ai
@@ -119,11 +123,14 @@ def process_journals(
         reassess_with_ai = bool(same_pattern and ai_enabled)
         if same_pattern and not reassess_with_ai:
             reused_events += 1
+            processed_event_ids.append(str(prior_event.id))
             continue
-        event = prior_event if reassess_with_ai else candidate
+        event = prior_event if (reassess_with_ai or selected_event_ids is not None) else candidate
         if not reassess_with_ai:
-            repo.save(event)
-            created_events += 1
+            if selected_event_ids is None:
+                repo.save(event)
+                created_events += 1
+        processed_event_ids.append(str(event.id))
         risk = None
         if ai_enabled:
             ai_stage = "provider_initialization"
@@ -229,4 +236,5 @@ def process_journals(
         "risks": created_risks,
         "retriedEvents": retried_events,
         "skippedByMateriality": skipped_by_materiality,
+        "eventIds": processed_event_ids,
     }

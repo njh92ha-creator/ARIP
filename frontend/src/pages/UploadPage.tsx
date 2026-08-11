@@ -12,7 +12,7 @@ const emptySource = (): SourceState => ({ mapping: '', attached: false })
 const sourceLabel = (type: SourceType) => type === 'GENERAL_LEDGER' ? '총계정원장' : '결산 명세서'
 const sourceDescription = (type: SourceType) => type === 'GENERAL_LEDGER'
   ? '거래, 계정과목, 적요 정보를 바탕으로 회계 사건과 감사 리스크를 분석합니다.'
-  : '기말 잔액과 증감 신호를 바탕으로 원장 데이터와 교차 분석합니다.'
+  : '계정별 당기·전기 절대 증감액이 수행중요성을 초과한 경우에만 원장 전표 분석 대상을 선정합니다.'
 
 export function UploadPage() {
   const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: async () => (await api.get<Company[]>('/companies')).data })
@@ -83,8 +83,17 @@ export function UploadPage() {
     if (!closingSet || !ledger.attached || !settlement.attached) return
     setBusy(true); setError('')
     try {
-      const response = await api.post(`/closing-analysis-sets/${closingSet.id}/analyze`)
-      setResult(response.data)
+      const response = await api.post<{ queuedEventIds: string[]; qualifiedAccounts: number }>(`/closing-analysis-sets/${closingSet.id}/analyze`)
+      const eventResults: unknown[] = []
+      for (const eventId of response.data.queuedEventIds) {
+        try {
+          const eventResponse = await api.post(`/closing-analysis-sets/${closingSet.id}/analysis-events/${eventId}/analyze`)
+          eventResults.push(eventResponse.data)
+        } catch (cause: any) {
+          eventResults.push({ eventId, status: 'FAILED', error: cause?.response?.data?.detail ?? '전표별 AI 분석에 실패했습니다.' })
+        }
+      }
+      setResult({ ...response.data, eventResults })
       const refreshed = await api.get(`/closing-analysis-sets/${closingSet.id}`)
       setClosingSet(refreshed.data.closingAnalysisSet)
     } catch (cause: any) {
