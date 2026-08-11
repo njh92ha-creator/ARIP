@@ -8,12 +8,13 @@
 
 - `baed83f` — `fix: harden risk review transfers`
 - `619ec09` — `fix: bind review scope to server principal`
+- `bb947dc` — `fix: scope source risk review workflow`
 
 **Branch:** `codex/design-system-refactor`
 
 ## Outcome
 
-All six findings in `final-review.md`, including the independent follow-up finding that the first authorization fix still trusted caller-controlled headers, are corrected. Backend and frontend suites and the TypeScript/Vite production build pass. Unrelated `.gitignore` and older plan-file changes in the worktree were not staged or modified by this fix wave.
+All six findings in `final-review.md` and both subsequent P1 re-review findings are corrected. This includes eliminating caller-controlled review scope from both transferred cases and the source-risk prerequisite workflow. Backend and frontend suites and the TypeScript/Vite production build pass. Unrelated `.gitignore` and older plan-file changes in the worktree were not staged or modified by this fix wave.
 
 ## Finding 1 — Tenant-scoped review authorization and list exposure (P1)
 
@@ -27,6 +28,8 @@ All six findings in `final-review.md`, including the independent follow-up findi
 - `VIEWER` is an established role but is excluded from every review route.
 - The review list returns summary fields only. It omits packages, answers, attachment metadata, source IDs, and internal review UUIDs.
 - The frontend loads `/auth/me`, selects the exact matching authorized company, and fails closed if it is missing. It no longer uses `companies[0]` and sends no tenant-authorization header.
+- Source-risk list, risk-management list, source detail, source review-decision, and source severity routes now use the same server-owned principal and company check before reading or mutating a risk.
+- `RiskListPage` loads `/auth/me`, matches the server-selected company rather than `companies[0]`, and queries `/risks` only with that authorized company ID.
 
 ### Regression coverage
 
@@ -37,10 +40,14 @@ All six findings in `final-review.md`, including the independent follow-up findi
 - `test_review_list_returns_only_summary_fields`
 - `AuthenticatedCompanyScope.test.mjs`
 - `RiskReviewWorkspace.test.mjs`
+- `test_source_risk_queries_and_review_prerequisites_reject_forged_company_scope`
+- `AnalysisOutput.test.mjs` (`risk list uses the server-authorized company instead of the first company`)
 
 The cross-company test creates data under a different server-selected principal, switches back to the first principal, then forges all three `X-ARIP-*` headers for the other tenant. List, transfer, detail, answer, decision, severity, upload, download, and delete all return HTTP 403. The frontend runtime test proves an authorized second company is selected when an unauthorized company is first in the companies response.
 
 Follow-up RED run before server-principal enforcement: `2 failed, 2 passed, 29 deselected`. Focused GREEN run after enforcement: `4 passed, 29 deselected`.
+
+Final re-review RED evidence: the source-risk scope regression failed because forged headers returned HTTP 200 and changed both source risks; the RiskListPage contract test failed because `/auth/me` was absent and `companies[0]` remained. Focused GREEN results: backend `1 passed, 33 deselected`; frontend `3 passed, 0 failed`. The backend regression asserts HTTP 403 for source list, risk-management list, source detail, decision, and severity, and verifies row versions, severity, and memory are unchanged.
 
 ## Finding 2 — Durable transfer idempotency and shared review invariants (P1)
 
@@ -134,15 +141,15 @@ Command from `backend`:
 ```powershell
 $env:ARIP_SKIP_DATABASE='1'
 $env:PYTHONPATH='.'
-& 'C:\Users\POSCOFUTUREM\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m pytest tests -q -p no:cacheprovider --basetemp=.pytest-tmp-commit
+& 'C:\Users\POSCOFUTUREM\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m pytest tests -q -p no:cacheprovider --basetemp=.pytest-tmp-final-source-scope
 ```
 
 Output:
 
 ```text
-........................................................................ [ 91%]
-.......                                                                  [100%]
-79 passed in 1.49s
+........................................................................ [ 90%]
+........                                                                 [100%]
+80 passed in 1.59s
 ```
 
 ### Frontend tests
@@ -156,10 +163,10 @@ node --test
 Output:
 
 ```text
-tests 18
-pass 18
+tests 19
+pass 19
 fail 0
-duration_ms 1311.1018
+duration_ms 1227.2279
 ```
 
 ### Frontend production build
@@ -175,8 +182,8 @@ Output:
 ```text
 tsc -b && vite build
 11821 modules transformed
-dist/assets/index-BFCv4UbS.js  737.07 kB | gzip: 224.86 kB
-built in 7.44s
+dist/assets/index-Cf5Id9wz.js  737.19 kB | gzip: 224.91 kB
+built in 6.56s
 ```
 
 The build exited 0. Vite emitted its existing advisory that the main minified chunk exceeds 500 kB.
@@ -194,3 +201,4 @@ The build exited 0. Vite emitted its existing advisory that the main minified ch
 - Reviewed baseline: `7ce0216`
 - Core correctness/security fixes: `baed83f`
 - Server-verified principal scope and frontend authenticated-company fix: `619ec09`
+- Source-risk prerequisite scope and authorized RiskListPage: `bb947dc`
