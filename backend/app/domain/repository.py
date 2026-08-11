@@ -21,12 +21,35 @@ from .models import (
     MappingProfile,
     MaterialityProfile,
     Risk,
+    RiskPackage,
     RiskMemoryEntry,
     SettlementBalance,
     VarianceObservation,
     VarianceException,
     VarianceProfile,
 )
+
+
+def hydrate_legacy_object(obj: Any) -> None:
+    """Populate fields added after a persisted dataclass instance was saved."""
+    if isinstance(obj, SettlementBalance):
+        if not hasattr(obj, "current_amount"):
+            object.__setattr__(obj, "current_amount", None)
+        if not hasattr(obj, "prior_amount"):
+            object.__setattr__(obj, "prior_amount", None)
+    if isinstance(obj, (Risk, RiskPackage)):
+        package = obj.package if isinstance(obj, Risk) else obj
+        defaults = {
+            "related_accounts": [],
+            "voucher_count": 0,
+            "event_inference": "",
+            "audit_issues": [],
+            "standards_evidence": [],
+            "ledger_evidence": [],
+        }
+        for field_name, default in defaults.items():
+            if not hasattr(package, field_name):
+                object.__setattr__(package, field_name, default)
 
 T = TypeVar("T")
 
@@ -101,6 +124,7 @@ class InMemoryRepository:
                 rows = connection.execute(text("select collection, object_id, payload from arip_state"))
                 for collection, object_id, payload in rows:
                     obj = pickle.loads(bytes(payload))
+                    hydrate_legacy_object(obj)
                     store_name = {
                         "CompanySettings": "companies",
                         "MaterialityProfile": "materiality_profiles",

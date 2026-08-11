@@ -3,11 +3,37 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 from app.main import app
-from app.domain.repository import InMemoryRepository
+from app.domain.repository import InMemoryRepository, hydrate_legacy_object
+from app.domain.models import RiskPackage
 from app.api.schemas import AiConnectionTestInput
 
 
 class RuntimePersistenceTests(unittest.TestCase):
+    def test_legacy_risk_package_is_hydrated_with_structured_ai_defaults(self) -> None:
+        package = RiskPackage(
+            summary="legacy",
+            references=[],
+            expected_questions=[],
+            evidence_checklist=[],
+            response_guidance=[],
+            generated_by="LEGACY",
+        )
+        del package.related_accounts
+        del package.voucher_count
+        del package.event_inference
+        del package.audit_issues
+        del package.standards_evidence
+        del package.ledger_evidence
+
+        hydrate_legacy_object(package)
+
+        self.assertEqual(package.related_accounts, [])
+        self.assertEqual(package.voucher_count, 0)
+        self.assertEqual(package.event_inference, "")
+        self.assertEqual(package.audit_issues, [])
+        self.assertEqual(package.standards_evidence, [])
+        self.assertEqual(package.ledger_evidence, [])
+
     def test_ai_connection_test_accepts_an_analysis_prompt(self):
         payload = AiConnectionTestInput(
             secret_reference="env:NVIDIA_API_KEY",
