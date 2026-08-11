@@ -68,6 +68,21 @@ export interface Risk {
   }
 }
 
+export interface RiskReviewCase {
+  id: string
+  risk_code: string
+  title: string
+  statement: string
+  review_decision: 'CHECK' | 'PENDING' | 'PASS'
+  severity: 'HIGH' | 'MEDIUM' | 'LOW'
+  status: string
+}
+
+export interface RiskReviewTransfer {
+  review_decision: 'CHECK' | 'PENDING'
+  severity: 'HIGH' | 'MEDIUM' | 'LOW'
+}
+
 export interface AccountingEvent {
   id: string
   event_type: string
