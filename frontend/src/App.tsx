@@ -3,6 +3,7 @@ import { AppShell } from './layout/AppShell'
 import { DashboardPage } from './pages/DashboardPage'
 import { EventDetailPage } from './pages/EventPages'
 import { RiskReviewPage } from './pages/RiskReviewPage'
+import { RiskReviewCaseDetailPage } from './pages/RiskReviewCaseDetailPage'
 import { JournalPage } from './pages/JournalPage'
 import { LoginPage } from './pages/LoginPage'
 import { RiskDetailPage, RiskListPage } from './pages/RiskPages'
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="risks/:riskId" element={<RiskDetailPage />} />
         <Route path="events" element={<RiskReviewPage />} />
         <Route path="events/:eventId" element={<EventDetailPage />} />
+        <Route path="risk-reviews/:reviewCaseId" element={<RiskReviewCaseDetailPage />} />
         <Route path="journals" element={<JournalPage />} />
         <Route path="uploads" element={<UploadPage />} />
         <Route path="settings" element={<SettingsPage />} />

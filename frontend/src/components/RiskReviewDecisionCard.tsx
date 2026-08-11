@@ -41,7 +41,7 @@ export function RiskReviewDecisionCard({ risk }: { risk: Risk }) {
         queryClient.invalidateQueries({ queryKey: ['risk-reviews'] }),
         queryClient.invalidateQueries({ queryKey: ['risk-management'] }),
       ])
-      navigate(`/events/${reviewCase.id}`)
+      navigate(`/risk-reviews/${reviewCase.id}`)
     },
   })
   const current = savedDecision ?? risk.review_decision ?? 'CHECK'
