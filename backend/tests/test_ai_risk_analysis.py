@@ -79,6 +79,7 @@ class NvidiaTimeoutConfigurationTest(unittest.TestCase):
         self.assertEqual(captured["timeout"], 120.0)
         self.assertEqual(len(captured["messages"]), 2)
         self.assertIn("동일 전표번호 안의 행만", captured["messages"][0]["content"])
+        self.assertIn("JSON 객체 하나만 반환", captured["messages"][0]["content"])
         self.assertNotIn("개발비·무형자산 거래에서는", captured["messages"][0]["content"])
         policy = json.loads(captured["messages"][1]["content"])["policy"]
         self.assertIn("RAG retrieval is disabled", policy)

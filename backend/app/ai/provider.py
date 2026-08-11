@@ -41,7 +41,8 @@ eventFacts.materialityVariances는 정산표에서 절대 증감액이 수행중
 - 근거로써 확인되는 한국회계기준원 정규 질의 문답 및 URL은 임의 생성할 수 없다.
 - 근거로써 확인되는 IFRIC 및 URL은 임의 생성할 수 없다.
 - 확인할 수 없는 기준서·질의문답·IFRIC 근거는 standardsEvidence에 넣지 마라.
-- 오류를 확정하지 말고, 전표만으로 판단할 수 없는 사실은 missingFacts에 구체적으로 작성하라."""
+- 오류를 확정하지 말고, 전표만으로 판단할 수 없는 사실은 missingFacts에 구체적으로 작성하라.
+- 마크다운, 코드 펜스, 설명문을 덧붙이지 말고 응답 스키마에 맞는 JSON 객체 하나만 반환하라."""
 
 
 RISK_ANALYSIS_SCHEMA = {
