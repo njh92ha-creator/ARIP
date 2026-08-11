@@ -21,3 +21,12 @@ test('event details display related risks returned by the analysis API', async (
 
   assert.match(eventPage, /const relatedRisks = data\.relatedRisks \?\? \[\]/)
 })
+
+test('risk list uses the server-authorized company instead of the first company', async () => {
+  const riskPage = await readFile(new URL('./RiskPages.tsx', import.meta.url), 'utf8')
+
+  assert.match(riskPage, /api\.get<AuthPrincipal>\('\/auth\/me'\)/)
+  assert.match(riskPage, /selectAuthenticatedCompany\(companies, principal\)/)
+  assert.match(riskPage, /params: \{ company_id: company!\.id \}/)
+  assert.doesNotMatch(riskPage, /const company = companies\?\.\[0\]/)
+})

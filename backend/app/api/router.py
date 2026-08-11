@@ -934,7 +934,13 @@ def dashboard(company_id: UUID) -> Any:
 
 
 @router.get("/risks")
-def list_risks(company_id: UUID) -> Any:
+def list_risks(
+    company_id: UUID,
+    user: CurrentUser = Depends(
+        require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
+    ),
+) -> Any:
+    _require_review_company(user, company_id)
     return encode(
         [
             _risk_review_payload(risk)
@@ -1046,8 +1052,14 @@ def list_risk_reviews(
 
 
 @router.get("/settings/risk-management")
-def list_risk_management(company_id: UUID) -> Any:
+def list_risk_management(
+    company_id: UUID,
+    user: CurrentUser = Depends(
+        require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
+    ),
+) -> Any:
     """Administrative view of source analyses which remain eligible for management."""
+    _require_review_company(user, company_id)
     return encode(
         [
             _risk_review_payload(risk)
@@ -1221,8 +1233,14 @@ def delete_risk_review_attachment(
 
 
 @router.get("/risks/{risk_id}")
-def get_risk(risk_id: UUID) -> Any:
+def get_risk(
+    risk_id: UUID,
+    user: CurrentUser = Depends(
+        require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
+    ),
+) -> Any:
     risk = _entity(repository.risks, risk_id, "risk")
+    _require_review_company(user, risk.company_id)
     event = repository.events.get(risk.event_id)
     lines = [
         line
@@ -1320,10 +1338,11 @@ def set_risk_review_decision(
     risk_id: UUID,
     payload: RiskReviewDecision,
     user: CurrentUser = Depends(
-        require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
+        require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
     ),
 ) -> Any:
     risk = _entity(repository.risks, risk_id, "risk")
+    _require_review_company(user, risk.company_id)
     decision = payload.decision.upper()
     if decision not in REVIEW_DECISIONS:
         raise HTTPException(422, "decision must be CHECK, PENDING, or PASS")
@@ -1357,9 +1376,10 @@ def set_risk_review_decision(
 def set_risk_severity(
     risk_id: UUID,
     payload: RiskSeverity,
-    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
     risk = _entity(repository.risks, risk_id, "risk")
+    _require_review_company(user, risk.company_id)
     severity = payload.severity.upper()
     if severity not in RISK_SEVERITIES:
         raise HTTPException(422, "severity must be HIGH, MEDIUM, or LOW")

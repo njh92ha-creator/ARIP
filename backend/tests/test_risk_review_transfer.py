@@ -562,6 +562,78 @@ def test_review_routes_deny_cross_company_read_write_transfer_and_download(
     ]
 
 
+def test_source_risk_queries_and_review_prerequisites_reject_forged_company_scope(
+    review_api: tuple[TestClient, InMemoryRepository, Risk],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, repository, authorized_source = review_api
+    other_company_id = uuid4()
+    decision_source = make_source_risk(
+        repository,
+        company_id=other_company_id,
+        risk_code="AS_20260811_001",
+    )
+    severity_source = make_source_risk(
+        repository,
+        company_id=other_company_id,
+        risk_code="CO_20260811_001",
+    )
+    monkeypatch.setenv(
+        "ARIP_USER_COMPANY_SCOPES",
+        json.dumps(
+            {
+                "demo-admin": [str(authorized_source.company_id)],
+                "other-reviewer": [str(other_company_id)],
+            }
+        ),
+    )
+    forged_other_scope = {
+        "X-ARIP-User": "other-reviewer",
+        "X-ARIP-Role": "ADMIN",
+        "X-ARIP-Company-ID": str(other_company_id),
+    }
+    decision_version = decision_source.row_version
+    severity_version = severity_source.row_version
+    decision_memory = list(repository.risk_memory.get(decision_source.id, []))
+    severity_memory = list(repository.risk_memory.get(severity_source.id, []))
+
+    responses = [
+        client.get(
+            "/api/v1/risks",
+            params={"company_id": str(other_company_id)},
+            headers=forged_other_scope,
+        ),
+        client.get(
+            "/api/v1/settings/risk-management",
+            params={"company_id": str(other_company_id)},
+            headers=forged_other_scope,
+        ),
+        client.get(
+            f"/api/v1/risks/{decision_source.id}",
+            headers=forged_other_scope,
+        ),
+        client.post(
+            f"/api/v1/risks/{decision_source.id}/review-decision",
+            json={"decision": "PENDING", "expected_version": decision_version},
+            headers=forged_other_scope,
+        ),
+        client.post(
+            f"/api/v1/risks/{severity_source.id}/severity",
+            json={"severity": "LOW", "expected_version": severity_version},
+            headers=forged_other_scope,
+        ),
+    ]
+
+    assert all(response.status_code == 403 for response in responses), [
+        (response.status_code, response.text) for response in responses
+    ]
+    assert decision_source.row_version == decision_version
+    assert severity_source.row_version == severity_version
+    assert severity_source.level == RiskLevel.HIGH
+    assert repository.risk_memory.get(decision_source.id, []) == decision_memory
+    assert repository.risk_memory.get(severity_source.id, []) == severity_memory
+
+
 def test_auth_me_returns_server_authorized_company_scopes(
     review_api: tuple[TestClient, InMemoryRepository, Risk]
 ) -> None:

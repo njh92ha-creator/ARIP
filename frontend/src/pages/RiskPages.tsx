@@ -19,7 +19,8 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
-import { AccountingEvent, api, Company, Risk } from '../api'
+import { AccountingEvent, api, AuthPrincipal, Company, Risk } from '../api'
+import { selectAuthenticatedCompany } from '../authenticatedCompany'
 import { RiskReviewDecisionCard } from '../components/RiskReviewDecisionCard'
 
 const border = '#E5E7EB'
@@ -68,8 +69,9 @@ function formatAnalysisDate(value?: string | null) {
 }
 
 export function RiskListPage() {
-  const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: async () => (await api.get<Company[]>('/companies')).data })
-  const company = companies?.[0]
+  const { data: companies, isLoading: areCompaniesLoading } = useQuery({ queryKey: ['companies'], queryFn: async () => (await api.get<Company[]>('/companies')).data })
+  const { data: principal, isLoading: isPrincipalLoading } = useQuery({ queryKey: ['auth-me'], queryFn: async () => (await api.get<AuthPrincipal>('/auth/me')).data })
+  const company = selectAuthenticatedCompany(companies, principal)
   const { data = [], isLoading } = useQuery({
     queryKey: ['risks', company?.id],
     enabled: Boolean(company),
@@ -83,7 +85,7 @@ export function RiskListPage() {
       <Box sx={{ overflowX: 'auto' }}><Table sx={{ minWidth: 760 }}>
         <TableHead><TableRow><TableCell>리스크 ID</TableCell><TableCell>분석 결과</TableCell><TableCell>분석 일시</TableCell><TableCell>분석 점수</TableCell><TableCell>심각도</TableCell><TableCell>상태</TableCell><TableCell>분석 경로</TableCell></TableRow></TableHead>
         <TableBody>
-          {isLoading ? <TableRow><TableCell colSpan={7} align="center" sx={{ py: 8 }}><CircularProgress size={28} /></TableCell></TableRow> :
+          {areCompaniesLoading || isPrincipalLoading || isLoading ? <TableRow><TableCell colSpan={7} align="center" sx={{ py: 8 }}><CircularProgress size={28} /></TableCell></TableRow> :
             data.length === 0 ? <TableRow><TableCell colSpan={7} align="center" sx={{ py: 8, color: 'text.secondary' }}>분석으로 생성된 리스크가 없습니다.</TableCell></TableRow> :
             data.map((risk) => <TableRow key={risk.id} hover>
               <TableCell><Typography component={Link} to={`/risks/${risk.id}`} sx={{ color: primary, fontWeight: 700, textDecoration: 'none' }}>{risk.risk_code || '-'}</Typography></TableCell>
