@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import uuid4
 
 from app.domain.models import (
@@ -12,10 +13,42 @@ from app.domain.models import (
     SettlementBalance,
 )
 from app.domain.repository import InMemoryRepository
-from app.services.closing_analysis import create_closing_analysis_set, analyze_closing_analysis_set
+from app.services.closing_analysis import (
+    analyze_closing_analysis_set,
+    create_closing_analysis_set,
+    materiality_qualified_settlement_accounts,
+)
 
 
 class ClosingAnalysisSetTest(unittest.TestCase):
+    def test_legacy_settlement_without_period_values_is_skipped_without_crashing(self) -> None:
+        repo = InMemoryRepository(persistent=False)
+        company = repo.save(CompanySettings("P001", "Test Company", "Manufacturing"))
+        repo.save(
+            MaterialityProfile(
+                company_id=company.id,
+                name="Default",
+                benchmark="TOTAL_ASSETS",
+                overall_materiality=Decimal("500"),
+                performance_materiality=Decimal("100"),
+                trivial_threshold=Decimal("10"),
+                effective_from=date(2025, 1, 1),
+                status="APPROVED",
+            )
+        )
+        closing_set = create_closing_analysis_set(repo, company.id, 2025, 6)
+        legacy_balance = SimpleNamespace(
+            account_code="1000",
+            account_name="Cash",
+            amount=Decimal("500"),
+        )
+
+        qualified = materiality_qualified_settlement_accounts(
+            repo, closing_set, [legacy_balance]
+        )
+
+        self.assertEqual(qualified, {})
+
     def test_only_accounts_with_absolute_settlement_variance_above_performance_materiality_reach_ai(self) -> None:
         repo = InMemoryRepository(persistent=False)
         company = repo.save(CompanySettings("P001", "Test Company", "Manufacturing"))

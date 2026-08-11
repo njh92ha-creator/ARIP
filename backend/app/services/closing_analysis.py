@@ -165,14 +165,21 @@ def materiality_qualified_settlement_accounts(
     threshold = profile.performance_materiality
     qualified: dict[str, dict[str, str]] = {}
     for balance in balances:
-        difference = balance.current_amount - balance.prior_amount
+        current_amount = getattr(balance, "current_amount", None)
+        prior_amount = getattr(balance, "prior_amount", None)
+        # Settlement balances saved before period comparison was introduced
+        # cannot support a reliable variance calculation.  Skip them rather
+        # than treating a missing comparative value as zero.
+        if current_amount is None or prior_amount is None:
+            continue
+        difference = current_amount - prior_amount
         if abs(difference) <= threshold:
             continue
         qualified[balance.account_code] = {
             "accountCode": balance.account_code,
             "accountName": balance.account_name,
-            "currentAmount": str(balance.current_amount),
-            "priorAmount": str(balance.prior_amount),
+            "currentAmount": str(current_amount),
+            "priorAmount": str(prior_amount),
             "difference": str(difference),
             "absoluteDifference": str(abs(difference)),
             "performanceMateriality": str(threshold),
