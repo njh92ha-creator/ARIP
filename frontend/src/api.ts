@@ -70,12 +70,36 @@ export interface Risk {
 
 export interface RiskReviewCase {
   id: string
+  company_id: string
   risk_code: string
   title: string
   statement: string
+  level: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | string
+  score: number
+  route: string
+  package: Risk['package']
   review_decision: 'CHECK' | 'PENDING' | 'PASS'
   severity: 'HIGH' | 'MEDIUM' | 'LOW'
+  materiality_level: string
   status: string
+  transferred_at: string
+  answers: RiskReviewAnswer[]
+  attachments: RiskReviewAttachment[]
+}
+
+export interface RiskReviewAnswer {
+  id: string
+  question: string
+  answer: string
+  updated_at: string
+}
+
+export interface RiskReviewAttachment {
+  id: string
+  filename: string
+  content_type: string
+  size_bytes: number
+  created_at: string
 }
 
 export interface RiskReviewTransfer {
