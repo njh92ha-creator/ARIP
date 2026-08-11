@@ -43,13 +43,14 @@ export function RiskReviewPage() {
     queryFn: async () => (await api.get<RiskReviewCase[]>('/risk-reviews', { params: { company_id: company!.id } })).data,
   })
   const activeCases = data.filter((reviewCase) => reviewCase.review_decision !== 'PASS')
+  const hasLoadError = isCompanyError || isError
 
   return <Box>
     <Typography variant="h4">리스크 검토</Typography>
     <Typography color="text.secondary" sx={{ mt: .75, mb: 3 }}>검토 대상으로 이관된 Check 및 Pending 리스크만 관리합니다.</Typography>
-    {isCompanyError || isError ? <Alert severity="error" sx={{ mb: 2 }}>검토 케이스를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</Alert> : null}
-    {!isCompanyLoading && !company ? <Alert severity="info" sx={{ mb: 2 }}>먼저 설정에서 회사를 등록해 주세요.</Alert> : null}
-    <Card sx={cardSx}>
+    {hasLoadError ? <Alert severity="error">검토 케이스를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</Alert>
+      : !isCompanyLoading && !company ? <Alert severity="info">먼저 설정에서 회사를 등록해 주세요.</Alert>
+      : <Card sx={cardSx}>
       <Box sx={{ overflowX: 'auto' }}><Table sx={{ minWidth: 820 }}>
         <TableHead><TableRow><TableCell>리스크 ID</TableCell><TableCell>이관된 분석 결과</TableCell><TableCell>검토 분류</TableCell><TableCell>심각도</TableCell><TableCell>상태</TableCell><TableCell>이관 일시</TableCell></TableRow></TableHead>
         <TableBody>
@@ -66,6 +67,6 @@ export function RiskReviewPage() {
         </TableBody>
       </Table></Box>
       <Box sx={{ px: 2.5, py: 1.75, color: 'text.secondary', fontSize: 13 }}>현재 검토 대상 {activeCases.length}건</Box>
-    </Card>
+    </Card>}
   </Box>
 }

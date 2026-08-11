@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   Alert,
   Box,
@@ -77,7 +77,7 @@ function AnswerEditor({ reviewCaseId, question, savedAnswer }: { reviewCaseId: s
   const queryClient = useQueryClient()
   const [answer, setAnswer] = useState(savedAnswer?.answer ?? '')
   const mutation = useMutation({
-    mutationFn: async () => (await api.put<RiskReviewAnswer>(`/risk-reviews/${reviewCaseId}/answers`, { question, answer })).data,
+    mutationFn: async (submittedAnswer: string) => (await api.put<RiskReviewAnswer>(`/risk-reviews/${reviewCaseId}/answers`, { question, answer: submittedAnswer })).data,
     onSuccess: (saved) => {
       queryClient.setQueryData<RiskReviewCase>(['risk-review', reviewCaseId], (current) => current ? {
         ...current,
@@ -85,10 +85,6 @@ function AnswerEditor({ reviewCaseId, question, savedAnswer }: { reviewCaseId: s
       } : current)
     },
   })
-
-  useEffect(() => {
-    setAnswer(savedAnswer?.answer ?? '')
-  }, [savedAnswer?.answer])
 
   return <Box sx={{ p: 2, border: `1px solid ${border}`, borderRadius: 2, bgcolor: '#FCFCFD' }}>
     <Typography fontWeight={700} sx={{ mb: 1.25 }}>{question}</Typography>
@@ -106,7 +102,7 @@ function AnswerEditor({ reviewCaseId, question, savedAnswer }: { reviewCaseId: s
         {mutation.isError ? <Typography color="error" variant="caption">{errorMessage(mutation.error, '답변을 저장하지 못했습니다.')}</Typography> : null}
         {mutation.isSuccess ? <Typography color="success.main" variant="caption">저장됨 · {formatDate(mutation.data.updated_at)}</Typography> : null}
       </Box>
-      <Button variant="contained" size="small" startIcon={<SaveOutlinedIcon />} disabled={mutation.isPending} onClick={() => mutation.mutate()}>
+      <Button variant="contained" size="small" startIcon={<SaveOutlinedIcon />} disabled={mutation.isPending} onClick={() => mutation.mutate(answer)}>
         {mutation.isPending ? '저장 중' : '답변 저장'}
       </Button>
     </Stack>
@@ -251,10 +247,11 @@ export function RiskReviewDetailPage() {
       await queryClient.cancelQueries({ queryKey: ['risk-review', reviewCaseId] })
       const previous = queryClient.getQueryData<RiskReviewCase>(['risk-review', reviewCaseId])
       queryClient.setQueryData<RiskReviewCase>(['risk-review', reviewCaseId], (current) => current ? { ...current, review_decision: value } : current)
-      return { previous }
+      return { previousDecision: previous?.review_decision }
     },
     onError: (mutationError, _, context) => {
-      if (context?.previous) queryClient.setQueryData(['risk-review', reviewCaseId], context.previous)
+      const previousDecision = context?.previousDecision
+      if (previousDecision) queryClient.setQueryData<RiskReviewCase>(['risk-review', reviewCaseId], (current) => current ? { ...current, review_decision: previousDecision } : current)
       setControlError(errorMessage(mutationError, '검토 분류를 변경하지 못했습니다.'))
     },
     onSuccess: (updated) => queryClient.setQueryData<RiskReviewCase>(['risk-review', reviewCaseId], (current) => current ? { ...current, review_decision: updated.review_decision } : updated),
@@ -267,15 +264,17 @@ export function RiskReviewDetailPage() {
       await queryClient.cancelQueries({ queryKey: ['risk-review', reviewCaseId] })
       const previous = queryClient.getQueryData<RiskReviewCase>(['risk-review', reviewCaseId])
       queryClient.setQueryData<RiskReviewCase>(['risk-review', reviewCaseId], (current) => current ? { ...current, severity: value } : current)
-      return { previous }
+      return { previousSeverity: previous?.severity }
     },
     onError: (mutationError, _, context) => {
-      if (context?.previous) queryClient.setQueryData(['risk-review', reviewCaseId], context.previous)
+      const previousSeverity = context?.previousSeverity
+      if (previousSeverity) queryClient.setQueryData<RiskReviewCase>(['risk-review', reviewCaseId], (current) => current ? { ...current, severity: previousSeverity } : current)
       setControlError(errorMessage(mutationError, '심각도를 변경하지 못했습니다.'))
     },
     onSuccess: (updated) => queryClient.setQueryData<RiskReviewCase>(['risk-review', reviewCaseId], (current) => current ? { ...current, severity: updated.severity } : updated),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: ['risk-reviews'] }),
   })
+  const controlsPending = decision.isPending || severity.isPending
 
   if (!reviewCaseId) return <Alert severity="error">검토 케이스 경로가 올바르지 않습니다.</Alert>
   if (isError) return <Alert severity="error">{errorMessage(error, '검토 케이스를 불러오지 못했습니다.')}</Alert>
@@ -299,7 +298,7 @@ export function RiskReviewDetailPage() {
             labelId="review-decision-label"
             label="검토 분류"
             value={reviewCase.review_decision}
-            disabled={decision.isPending}
+            disabled={controlsPending}
             onChange={(event) => decision.mutate(event.target.value as RiskReviewCase['review_decision'])}
           >
             {Object.entries(decisionLabel).map(([value, label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}
@@ -311,7 +310,7 @@ export function RiskReviewDetailPage() {
             labelId="review-severity-label"
             label="심각도"
             value={reviewCase.severity}
-            disabled={severity.isPending}
+            disabled={controlsPending}
             onChange={(event) => severity.mutate(event.target.value as RiskReviewCase['severity'])}
           >
             {Object.entries(severityLabel).map(([value, label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}
