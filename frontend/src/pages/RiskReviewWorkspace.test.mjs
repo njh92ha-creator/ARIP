@@ -29,6 +29,8 @@ test('answer save preserves edits typed after the request starts', async () => {
   assert.match(editor, /mutationFn: async \(submittedAnswer: string\)/)
   assert.match(editor, /\{ question, answer: submittedAnswer \}/)
   assert.match(editor, /mutation\.mutate\(answer\)/)
+  assert.match(editor, /mutation\.isSuccess && answer === mutation\.variables \? <Typography/)
+  assert.doesNotMatch(editor, /\{mutation\.isSuccess \? <Typography/)
   assert.doesNotMatch(editor, /useEffect\(\(\) => \{\s*setAnswer\(savedAnswer\?\.answer/)
 })
 

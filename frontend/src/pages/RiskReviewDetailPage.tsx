@@ -100,7 +100,7 @@ function AnswerEditor({ reviewCaseId, question, savedAnswer }: { reviewCaseId: s
     <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} justifyContent="space-between" spacing={1} sx={{ mt: 1.25 }}>
       <Box>
         {mutation.isError ? <Typography color="error" variant="caption">{errorMessage(mutation.error, '답변을 저장하지 못했습니다.')}</Typography> : null}
-        {mutation.isSuccess ? <Typography color="success.main" variant="caption">저장됨 · {formatDate(mutation.data.updated_at)}</Typography> : null}
+        {mutation.isSuccess && answer === mutation.variables ? <Typography color="success.main" variant="caption">저장됨 · {formatDate(mutation.data.updated_at)}</Typography> : null}
       </Box>
       <Button variant="contained" size="small" startIcon={<SaveOutlinedIcon />} disabled={mutation.isPending} onClick={() => mutation.mutate(answer)}>
         {mutation.isPending ? '저장 중' : '답변 저장'}
