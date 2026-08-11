@@ -30,5 +30,6 @@ export function RiskReviewDecisionCard({ risk }: { risk: Risk }) {
       {risk.review_recommendation && <Typography variant="body2" color="text.secondary">추천: {labels[risk.review_recommendation.decision]} (유사 사례 {risk.review_recommendation.matched_cases}건, 신뢰도 {Math.round(risk.review_recommendation.confidence * 100)}%)</Typography>}
     </Stack>
     {mutation.isError && <Alert severity="error" sx={{ mt: 2 }}>검토 분류 저장에 실패했습니다. 새로고침 후 다시 시도해 주세요.</Alert>}
+    {risk.review_recommendation?.decision_counts && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>누적 결정: Check {risk.review_recommendation.decision_counts.CHECK}건 · Pending {risk.review_recommendation.decision_counts.PENDING}건 · Pass {risk.review_recommendation.decision_counts.PASS}건</Typography>}
   </CardContent></Card>
 }

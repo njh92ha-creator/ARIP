@@ -27,7 +27,7 @@ const primary = '#0056B0'
 const cardSx = { borderColor: border, borderRadius: '12px', boxShadow: '0 1px 2px rgba(16,24,40,.04)' }
 const labelSx = { color: '#667085', fontSize: 11, fontWeight: 700, letterSpacing: '.03em' }
 
-type JournalLine = { id: string; document_number?: string; account_code?: string; account_name?: string; posting_date?: string; local_amount?: number | string }
+type JournalLine = { id: string; document_number?: string; account_code?: string; account_name?: string; posting_date?: string; debit_credit_indicator?: string; local_amount?: number | string; header_text?: string; line_text?: string }
 type RiskDetail = Risk & {
   memory: unknown[]
   crossFindings: Array<{ id: string; title: string; statement: string; finding_type: string }>
@@ -115,7 +115,9 @@ export function RiskDetailPage() {
   const { data: risk } = useQuery({ queryKey: ['risk', riskId], enabled: Boolean(riskId), queryFn: async () => (await api.get<RiskDetail>(`/risks/${riskId}`)).data })
   if (!risk) return <Box sx={{ py: 8, textAlign: 'center' }}><CircularProgress size={30} /></Box>
 
-  const pkg = risk.package
+  // Original ledger rows are the audit evidence. Never render the model's
+  // paraphrased ledger evidence in their place.
+  const pkg = { ...risk.package, ledger_evidence: risk.package.ledger_evidence?.filter(() => false) ?? [] }
   const lines = risk.journalLines ?? []
   const findings = risk.crossFindings ?? []
   return <Box>
@@ -127,12 +129,12 @@ export function RiskDetailPage() {
       <RiskReviewDecisionCard risk={risk} />
       <AnalysisInput lines={lines} event={risk.event} pkg={pkg} />
       <Card sx={cardSx}><CardContent sx={{ p: 2.5 }}><SectionTitle>분석 결과</SectionTitle>
+        <Typography sx={{ ...labelSx, mt: 2 }}>종합 판단</Typography>
+        <Typography sx={{ mt: .5, color: 'text.secondary', lineHeight: 1.7 }}>{pkg?.summary || risk.statement}</Typography>
         <Typography sx={{ ...labelSx, mt: 2 }}>회계사건 추론</Typography>
         <Typography sx={{ mt: .5, lineHeight: 1.8 }}>{pkg?.event_inference || '-'}</Typography>
         <Typography sx={{ ...labelSx, mt: 2 }}>회계감사 이슈</Typography>
         <Stack spacing={1} sx={{ mt: .75 }}>{pkg?.audit_issues?.length ? pkg.audit_issues.map((item) => <Stack key={item} direction="row" spacing={1}><WarningAmberRoundedIcon color="warning" fontSize="small" /><Typography fontSize={14}>{item}</Typography></Stack>) : <Empty text="생성된 회계감사 이슈가 없습니다." />}</Stack>
-        <Typography sx={{ ...labelSx, mt: 2 }}>종합 판단</Typography>
-        <Typography sx={{ mt: .5, color: 'text.secondary', lineHeight: 1.7 }}>{pkg?.summary || risk.statement}</Typography>
       </CardContent></Card>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'repeat(2,1fr)' }, gap: 3 }}>
         <Card sx={cardSx}><CardContent sx={{ p: 2.5 }}><SectionTitle>검토 질문</SectionTitle><Stack spacing={1.25} sx={{ mt: 2 }}>{pkg?.expected_questions?.length ? pkg.expected_questions.map((item) => <Stack key={item} direction="row" spacing={1}><WarningAmberRoundedIcon color="warning" fontSize="small" /><Typography fontSize={14}>{item}</Typography></Stack>) : <Empty text="생성된 검토 질문이 없습니다." />}</Stack></CardContent></Card>
@@ -140,7 +142,7 @@ export function RiskDetailPage() {
       </Box>
       <Card sx={cardSx}><CardContent sx={{ p: 2.5 }}><SectionTitle>기준서 검색 근거</SectionTitle><Stack spacing={1.25} sx={{ mt: 2 }}>{pkg?.standards_evidence?.length ? pkg.standards_evidence.map((reference, index) => <Alert key={`${reference.source}-${reference.title}-${index}`} severity="info"><Typography fontWeight={700}>{reference.source} · {reference.title}{reference.paragraph ? ` · ${reference.paragraph}` : ''}</Typography>{reference.excerpt && <Typography variant="body2" sx={{ mt: .5, whiteSpace: 'pre-wrap' }}>{reference.excerpt}</Typography>}{reference.url && <Typography component="a" href={reference.url} target="_blank" rel="noreferrer" variant="body2" sx={{ display: 'block', mt: .5, color: primary }}>{reference.url}</Typography>}</Alert>) : <Empty text="확인 가능한 기준서·질의문답·IFRIC 근거가 없습니다." />}</Stack></CardContent></Card>
       <Card sx={cardSx}><CardContent sx={{ p: 2.5 }}><SectionTitle>교차 분석 결과</SectionTitle><Stack spacing={1.25} sx={{ mt: 2 }}>{findings.length ? findings.map((finding) => <Alert key={finding.id} severity="warning"><Typography fontWeight={700}>{finding.title}</Typography><Typography variant="body2" sx={{ mt: .5 }}>{finding.statement}</Typography></Alert>) : <Empty text="교차 분석에서 추가로 식별된 항목이 없습니다." />}</Stack></CardContent></Card>
-      <Card sx={cardSx}><CardContent sx={{ p: 2.5 }}><SectionTitle>원장 근거</SectionTitle><Table size="small" sx={{ mt: 2 }}><TableHead><TableRow><TableCell>전표</TableCell><TableCell>계정</TableCell><TableCell>전기일</TableCell><TableCell>차대변</TableCell><TableCell align="right">금액</TableCell><TableCell>적요</TableCell></TableRow></TableHead><TableBody>{pkg?.ledger_evidence?.length ? pkg.ledger_evidence.map((line, index) => <TableRow key={`${line.documentNumber}-${line.accountName}-${index}`}><TableCell>{line.documentNumber || '-'}</TableCell><TableCell>{line.accountName || '-'}</TableCell><TableCell>{line.postingDate || '-'}</TableCell><TableCell>{line.debitCredit || '-'}</TableCell><TableCell align="right">{Number(line.amount || 0).toLocaleString()}</TableCell><TableCell>{line.description || '-'}</TableCell></TableRow>) : lines.length ? lines.map((line) => <TableRow key={line.id}><TableCell>{line.document_number || '-'}</TableCell><TableCell>{line.account_name || line.account_code || '-'}</TableCell><TableCell>{line.posting_date || '-'}</TableCell><TableCell>-</TableCell><TableCell align="right">{Number(line.local_amount || 0).toLocaleString()}</TableCell><TableCell>-</TableCell></TableRow>) : <TableRow><TableCell colSpan={6} align="center">연결된 원장 행이 없습니다.</TableCell></TableRow>}</TableBody></Table></CardContent></Card>
+      <Card sx={cardSx}><CardContent sx={{ p: 2.5 }}><SectionTitle>원장 근거</SectionTitle><Table size="small" sx={{ mt: 2 }}><TableHead><TableRow><TableCell>전표</TableCell><TableCell>계정</TableCell><TableCell>전기일</TableCell><TableCell>차대변</TableCell><TableCell align="right">금액</TableCell><TableCell>적요</TableCell></TableRow></TableHead><TableBody>{lines.length ? lines.map((line) => <TableRow key={line.id}><TableCell>{line.document_number || '-'}</TableCell><TableCell>{line.account_name || line.account_code || '-'}</TableCell><TableCell>{line.posting_date || '-'}</TableCell><TableCell>{line.debit_credit_indicator || '-'}</TableCell><TableCell align="right">{Number(line.local_amount || 0).toLocaleString()}</TableCell><TableCell>{line.header_text || line.line_text || '-'}</TableCell></TableRow>) : <TableRow><TableCell colSpan={6} align="center">연결된 원장 행이 없습니다.</TableCell></TableRow>}</TableBody></Table></CardContent></Card>
     </Stack>
   </Box>
 }

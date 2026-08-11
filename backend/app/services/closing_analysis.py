@@ -49,6 +49,8 @@ def attach_general_ledger(
     *,
     mapping_profile_id: UUID | None = None,
 ) -> ClosingAnalysisSet:
+    for existing in repo.lines_for_set(closing_set.id):
+        repo.remove(existing)
     for line in lines:
         line.closing_analysis_set_id = closing_set.id
         repo.save(line)

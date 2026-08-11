@@ -44,11 +44,45 @@ def _features(event: AccountingEvent, lines: Iterable[JournalLine]) -> set[str]:
     return {f"event:{event.event_type}", *tokens}
 
 
+def _normalized_issue_types(values: Iterable[str]) -> set[str]:
+    return {
+        re.sub(r"\s+", " ", str(value).strip()).lower()
+        for value in values
+        if str(value).strip()
+    }
+
+
 def recommend_review_decision(
     event: AccountingEvent,
     lines: list[JournalLine],
-    history: Iterable[tuple[AccountingEvent, list[JournalLine], list[RiskMemoryEntry]]],
+    history: Iterable[tuple[Any, ...]],
+    *,
+    issue_types: Iterable[str] | None = None,
 ) -> dict[str, Any] | None:
+    target_issue_types = _normalized_issue_types(issue_types or [])
+    if target_issue_types:
+        counts = {decision: 0 for decision in REVIEW_DECISIONS}
+        for item in history:
+            if len(item) < 4:
+                continue
+            _, _, entries, prior_issue_types = item
+            decision = explicit_review_decision(entries)
+            if decision and target_issue_types & _normalized_issue_types(prior_issue_types):
+                counts[decision] += 1
+        total = sum(counts.values())
+        if not total:
+            return None
+        ordered = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+        if len(ordered) > 1 and ordered[0][1] == ordered[1][1]:
+            return None
+        decision, votes = ordered[0]
+        return {
+            "decision": decision,
+            "confidence": round(votes / total, 2),
+            "matched_cases": votes,
+            "decision_counts": counts,
+        }
+
     target_features = _features(event, lines)
     votes: dict[str, float] = defaultdict(float)
     matched_cases: dict[str, int] = defaultdict(int)

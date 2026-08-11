@@ -30,6 +30,8 @@ def build_event_facts(
     )
     line_facts = [
         {
+            "documentNumber": line.document_number,
+            "postingDate": line.posting_date.isoformat(),
             "accountCode": line.account_code,
             "accountName": line.account_name,
             "debitCredit": line.debit_credit_indicator,
@@ -163,6 +165,7 @@ def risk_from_ai_analysis(
         audit_issues=[str(item) for item in analysis.get("auditIssues", [])],
         standards_evidence=standards_evidence,
         ledger_evidence=[dict(item) for item in analysis.get("ledgerEvidence", [])],
+        issue_types=issue_types,
     )
     title = f"검토 필요: {issue_types[0]}"
     statement = summary

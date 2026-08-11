@@ -46,6 +46,7 @@ def hydrate_legacy_object(obj: Any) -> None:
             "audit_issues": [],
             "standards_evidence": [],
             "ledger_evidence": [],
+            "issue_types": [],
         }
         for field_name, default in defaults.items():
             if not hasattr(package, field_name):
@@ -365,6 +366,7 @@ class InMemoryRepository:
             stores: dict[type[Any], dict[Any, Any]] = {
                 ClosingAnalysisSet: self.closing_analysis_sets,
                 SettlementBalance: self.settlement_balances,
+                JournalLine: self.journal_lines,
                 CrossAnalysisFinding: self.cross_analysis_findings,
                 VarianceObservation: self.variance_observations,
             }

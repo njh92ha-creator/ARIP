@@ -29,7 +29,7 @@ export interface Risk {
   row_version: number
   analyzed_at?: string | null
   review_decision?: 'CHECK' | 'PENDING' | 'PASS'
-  review_recommendation?: { decision: 'CHECK' | 'PENDING' | 'PASS'; confidence: number; matched_cases: number } | null
+  review_recommendation?: { decision: 'CHECK' | 'PENDING' | 'PASS'; confidence: number; matched_cases: number; decision_counts?: { CHECK: number; PENDING: number; PASS: number } } | null
   closing_analysis_set_id?: string
   cross_finding_ids?: string[]
   package: {
@@ -46,6 +46,7 @@ export interface Risk {
     voucher_count?: number
     event_inference?: string
     audit_issues?: string[]
+    issue_types?: string[]
     standards_evidence?: Array<{
       source: 'K-IFRS' | 'KASB_QA' | 'IFRIC'
       title: string

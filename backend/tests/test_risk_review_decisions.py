@@ -75,3 +75,22 @@ def test_similar_explicit_history_recommends_its_decision() -> None:
     )
 
     assert recommendation == {"decision": "PENDING", "confidence": 1.0, "matched_cases": 1}
+
+
+def test_matching_issue_types_recommend_the_majority_review_decision() -> None:
+    target_event, target_lines = make_event_and_lines("JE-3")
+    prior_event, prior_lines = make_event_and_lines("JE-1")
+    histories = [
+        (prior_event, prior_lines, [RiskMemoryEntry(risk_id=uuid4(), entry_type="REVIEW_DECISION", summary="PENDING", actor="user", metadata={"decision": "PENDING"})], ["차입금 분류 검토"]),
+        (prior_event, prior_lines, [RiskMemoryEntry(risk_id=uuid4(), entry_type="REVIEW_DECISION", summary="PENDING", actor="user", metadata={"decision": "PENDING"})], ["차입금 분류 검토"]),
+        (prior_event, prior_lines, [RiskMemoryEntry(risk_id=uuid4(), entry_type="REVIEW_DECISION", summary="PASS", actor="user", metadata={"decision": "PASS"})], ["차입금 분류 검토"]),
+    ]
+
+    recommendation = recommend_review_decision(
+        target_event, target_lines, histories, issue_types=["차입금 분류 검토"]
+    )
+
+    assert recommendation == {
+        "decision": "PENDING", "confidence": 0.67, "matched_cases": 2,
+        "decision_counts": {"CHECK": 0, "PENDING": 2, "PASS": 1},
+    }

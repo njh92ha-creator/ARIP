@@ -891,6 +891,13 @@ def list_risks(company_id: UUID) -> Any:
 
 
 def _risk_review_payload(risk: Any) -> dict[str, Any]:
+    def issue_types_for(item: Any) -> list[str]:
+        issue_types = list(getattr(item.package, "issue_types", []))
+        if issue_types:
+            return issue_types
+        title = str(getattr(item, "title", ""))
+        return [title.removeprefix("검토 필요:").strip()] if title else []
+
     event = repository.events.get(risk.event_id)
     lines = [
         line for line in repository.journal_lines.values()
@@ -904,6 +911,7 @@ def _risk_review_payload(risk: Any) -> dict[str, Any]:
                 if line.id in prior_event.journal_line_ids
             ],
             repository.risk_memory.get(prior_risk.id, []),
+            issue_types_for(prior_risk),
         )
         for prior_risk in repository.risks.values()
         if prior_risk.company_id == risk.company_id
@@ -914,7 +922,10 @@ def _risk_review_payload(risk: Any) -> dict[str, Any]:
         **encode(risk),
         "analyzed_at": latest_analysis_at(repository.risk_memory.get(risk.id, [])),
         "review_decision": current_review_decision(repository.risk_memory.get(risk.id, [])),
-        "review_recommendation": recommend_review_decision(event, lines, history) if event else None,
+        "review_recommendation": recommend_review_decision(
+            event, lines, history,
+            issue_types=issue_types_for(risk),
+        ) if event else None,
     }
 
 

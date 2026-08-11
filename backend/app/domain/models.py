@@ -207,6 +207,7 @@ class RiskPackage:
     audit_issues: list[str] = field(default_factory=list)
     standards_evidence: list[dict[str, str]] = field(default_factory=list)
     ledger_evidence: list[dict[str, str]] = field(default_factory=list)
+    issue_types: list[str] = field(default_factory=list)
     version: int = 1
     id: UUID = field(default_factory=uuid4)
 

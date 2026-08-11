@@ -24,6 +24,7 @@ class RuntimePersistenceTests(unittest.TestCase):
         del package.audit_issues
         del package.standards_evidence
         del package.ledger_evidence
+        del package.issue_types
 
         hydrate_legacy_object(package)
 
@@ -33,6 +34,7 @@ class RuntimePersistenceTests(unittest.TestCase):
         self.assertEqual(package.audit_issues, [])
         self.assertEqual(package.standards_evidence, [])
         self.assertEqual(package.ledger_evidence, [])
+        self.assertEqual(package.issue_types, [])
 
     def test_ai_connection_test_accepts_an_analysis_prompt(self):
         payload = AiConnectionTestInput(

@@ -131,6 +131,12 @@ class AiRiskFactsTest(unittest.TestCase):
 
         self.assertEqual(facts["sameTypeVoucherCount"], 3)
 
+    def test_build_event_facts_keeps_source_document_number_and_posting_date(self) -> None:
+        facts = build_event_facts(self.event, self.lines, same_type_voucher_count=1)
+
+        self.assertEqual(facts["journalLines"][0]["documentNumber"], self.lines[0].document_number)
+        self.assertEqual(facts["journalLines"][0]["postingDate"], self.lines[0].posting_date.isoformat())
+
     def test_reference_context_excludes_pending_documents(self) -> None:
         candidates = {
             "approved": {
@@ -218,6 +224,7 @@ class AiRiskFactsTest(unittest.TestCase):
         self.assertEqual(risk.package.voucher_count, 1)
         self.assertEqual(risk.package.event_inference, analysis["eventInference"])
         self.assertEqual(risk.package.audit_issues, analysis["auditIssues"])
+        self.assertEqual(risk.package.issue_types, analysis["issueTypes"])
         self.assertEqual(risk.package.standards_evidence, [])
         self.assertEqual(risk.package.ledger_evidence, analysis["ledgerEvidence"])
 

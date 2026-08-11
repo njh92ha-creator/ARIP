@@ -15,12 +15,28 @@ from app.domain.models import (
 from app.domain.repository import InMemoryRepository
 from app.services.closing_analysis import (
     analyze_closing_analysis_set,
+    attach_general_ledger,
     create_closing_analysis_set,
     materiality_qualified_settlement_accounts,
 )
 
 
 class ClosingAnalysisSetTest(unittest.TestCase):
+    def test_reuploading_general_ledger_replaces_prior_lines_in_the_same_set(self) -> None:
+        repo = InMemoryRepository(persistent=False)
+        company = repo.save(CompanySettings("P001", "Test Company", "Manufacturing"))
+        closing_set = create_closing_analysis_set(repo, company.id, 2025, 6)
+        old_line = JournalLine(company_id=company.id, source_row=1, document_number="JE-OLD", posting_date=date(2025, 6, 4), account_code="1000", account_name="Cash", local_amount=Decimal("100"), debit_credit_indicator="D", fiscal_year=2025, fiscal_period=6, source_hash="old")
+        new_line = JournalLine(company_id=company.id, source_row=1, document_number="JE-NEW", posting_date=date(2025, 6, 4), account_code="1000", account_name="Cash", local_amount=Decimal("100"), debit_credit_indicator="D", fiscal_year=2025, fiscal_period=6, source_hash="new")
+
+        attach_general_ledger(repo, closing_set, [old_line])
+        attach_general_ledger(repo, closing_set, [new_line])
+
+        self.assertEqual(
+            [line.document_number for line in repo.lines_for_set(closing_set.id)],
+            ["JE-NEW"],
+        )
+
     def test_legacy_settlement_without_period_values_is_skipped_without_crashing(self) -> None:
         repo = InMemoryRepository(persistent=False)
         company = repo.save(CompanySettings("P001", "Test Company", "Manufacturing"))
