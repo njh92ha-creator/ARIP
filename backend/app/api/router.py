@@ -1011,38 +1011,42 @@ def transfer_risk_to_review(
     risk = _entity(repository.risks, risk_id, "risk")
     decision = payload.review_decision.upper()
     severity = payload.severity.upper()
-    existing = repository.review_case_for_source_risk(risk.id)
-    try:
-        review_case = repository.create_review_case(
-            risk, review_decision=decision, severity=severity
-        )
-    except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
-    if existing is None:
-        repository.append_memory(
-            RiskMemoryEntry(
-                risk_id=risk.id,
-                entry_type="RISK_TRANSFERRED",
-                summary=f"Transferred to review case {risk.risk_code}",
-                actor=user.user_id,
-                metadata={"review_case_id": str(review_case.id), "risk_code": risk.risk_code},
+    with repository._lock:
+        existing = repository.review_case_for_source_risk(risk.id)
+        try:
+            review_case = repository.create_review_case(
+                risk, review_decision=decision, severity=severity
             )
-        )
-        repository.append_audit(
-            AuditLogEntry(
-                action="RISK_TRANSFERRED",
-                resource_type="Risk",
-                resource_id=str(risk.id),
-                actor=user.user_id,
-                company_id=risk.company_id,
-                reason=decision,
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if existing is None:
+            repository.append_memory(
+                RiskMemoryEntry(
+                    risk_id=risk.id,
+                    entry_type="RISK_TRANSFERRED",
+                    summary=f"Transferred to review case {risk.risk_code}",
+                    actor=user.user_id,
+                    metadata={"review_case_id": str(review_case.id), "risk_code": risk.risk_code},
+                )
             )
-        )
+            repository.append_audit(
+                AuditLogEntry(
+                    action="RISK_TRANSFERRED",
+                    resource_type="Risk",
+                    resource_id=str(risk.id),
+                    actor=user.user_id,
+                    company_id=risk.company_id,
+                    reason=decision,
+                )
+            )
     return _review_case_payload(review_case)
 
 
 @router.get("/risk-reviews/{review_case_id}")
-def get_risk_review_case(review_case_id: UUID) -> Any:
+def get_risk_review_case(
+    review_case_id: UUID,
+    _: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+) -> Any:
     return _review_case_payload(
         _entity(repository.risk_review_cases, review_case_id, "risk review case")
     )
@@ -1050,7 +1054,9 @@ def get_risk_review_case(review_case_id: UUID) -> Any:
 
 @router.put("/risk-reviews/{review_case_id}/answers")
 def save_risk_review_answer(
-    review_case_id: UUID, payload: RiskReviewAnswerUpdate
+    review_case_id: UUID,
+    payload: RiskReviewAnswerUpdate,
+    _: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
     _entity(repository.risk_review_cases, review_case_id, "risk review case")
     return encode(
@@ -1062,7 +1068,9 @@ def save_risk_review_answer(
 
 @router.post("/risk-reviews/{review_case_id}/review-decision")
 def set_risk_review_case_decision(
-    review_case_id: UUID, payload: RiskReviewCaseDecision
+    review_case_id: UUID,
+    payload: RiskReviewCaseDecision,
+    _: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
     review_case = _entity(repository.risk_review_cases, review_case_id, "risk review case")
     decision = payload.decision.upper()
@@ -1075,7 +1083,9 @@ def set_risk_review_case_decision(
 
 @router.post("/risk-reviews/{review_case_id}/severity")
 def set_risk_review_case_severity(
-    review_case_id: UUID, payload: RiskReviewCaseSeverity
+    review_case_id: UUID,
+    payload: RiskReviewCaseSeverity,
+    _: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
     review_case = _entity(repository.risk_review_cases, review_case_id, "risk review case")
     severity = payload.severity.upper()
@@ -1088,7 +1098,9 @@ def set_risk_review_case_severity(
 
 @router.post("/risk-reviews/{review_case_id}/attachments")
 def add_risk_review_attachment(
-    review_case_id: UUID, file: UploadFile = File(...)
+    review_case_id: UUID,
+    file: UploadFile = File(...),
+    _: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
     _entity(repository.risk_review_cases, review_case_id, "risk review case")
     attachment = RiskReviewAttachment(
@@ -1113,7 +1125,11 @@ def add_risk_review_attachment(
 
 
 @router.get("/risk-reviews/{review_case_id}/attachments/{attachment_id}/download")
-def download_risk_review_attachment(review_case_id: UUID, attachment_id: UUID) -> Response:
+def download_risk_review_attachment(
+    review_case_id: UUID,
+    attachment_id: UUID,
+    _: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+) -> Response:
     _entity(repository.risk_review_cases, review_case_id, "risk review case")
     attachment = repository.risk_review_attachments.get(attachment_id)
     if attachment is None or attachment.review_case_id != review_case_id:
@@ -1126,7 +1142,11 @@ def download_risk_review_attachment(review_case_id: UUID, attachment_id: UUID) -
 
 
 @router.delete("/risk-reviews/{review_case_id}/attachments/{attachment_id}")
-def delete_risk_review_attachment(review_case_id: UUID, attachment_id: UUID) -> Any:
+def delete_risk_review_attachment(
+    review_case_id: UUID,
+    attachment_id: UUID,
+    _: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+) -> Any:
     try:
         repository.remove_review_attachment(review_case_id, attachment_id)
     except KeyError as exc:
