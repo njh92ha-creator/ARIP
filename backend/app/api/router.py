@@ -1075,10 +1075,9 @@ def _review_case_payload(review_case: Any) -> dict[str, Any]:
 def transfer_risk_to_review(
     risk_id: UUID,
     payload: RiskReviewTransfer,
-    user: CurrentUser = Depends(require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
     risk = _entity(repository.risks, risk_id, "risk")
-    _require_review_company(user, risk.company_id)
     decision = payload.review_decision.upper()
     severity = payload.severity.upper()
     try:
