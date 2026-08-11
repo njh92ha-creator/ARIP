@@ -2,7 +2,7 @@ import { Alert, Box, Button, ButtonGroup, Card, CardContent, Chip, Stack, Typogr
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useState } from 'react'
-import { api, Risk, RiskReviewCase, RiskReviewTransfer } from '../api'
+import { api, companyScope, Risk, RiskReviewCase, RiskReviewTransfer } from '../api'
 
 const decisions = ['CHECK', 'PENDING', 'PASS'] as const
 const labels = { CHECK: 'Check', PENDING: 'Pending', PASS: 'Pass' }
@@ -34,14 +34,18 @@ export function RiskReviewDecisionCard({ risk }: { risk: Risk }) {
     },
   })
   const transferMutation = useMutation({
-    mutationFn: async (transfer: RiskReviewTransfer) => (await api.post<RiskReviewCase>(`/risks/${risk.id}/transfer-to-review`, transfer)).data,
+    mutationFn: async (transfer: RiskReviewTransfer) => (await api.post<RiskReviewCase>(
+      `/risks/${risk.id}/transfer-to-review`,
+      transfer,
+      companyScope(risk.company_id),
+    )).data,
     onSuccess: async (reviewCase) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['risks'] }),
         queryClient.invalidateQueries({ queryKey: ['risk-reviews'] }),
         queryClient.invalidateQueries({ queryKey: ['risk-management'] }),
       ])
-      navigate(`/risk-reviews/${reviewCase.id}`)
+      navigate(`/risk-reviews/${encodeURIComponent(reviewCase.risk_code)}`)
     },
   })
   const current = savedDecision ?? risk.review_decision ?? 'CHECK'

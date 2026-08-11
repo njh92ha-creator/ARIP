@@ -6,18 +6,22 @@ const readSources = async () => Promise.all([
   readFile(new URL('../App.tsx', import.meta.url), 'utf8'),
   readFile(new URL('./RiskReviewPage.tsx', import.meta.url), 'utf8'),
   readFile(new URL('./RiskReviewDetailPage.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('../components/RiskReviewDecisionCard.tsx', import.meta.url), 'utf8'),
 ])
 
 test('review workspace uses the transferred-case route, API, and business risk code', async () => {
-  const [app, list, detail] = await readSources()
+  const [app, list, detail, decisionCard] = await readSources()
 
-  assert.match(app, /path="risk-reviews\/:reviewCaseId" element=\{<RiskReviewDetailPage \/>\}/)
-  assert.match(list, /api\.get<RiskReviewCase\[\]>\('\/risk-reviews'/)
-  assert.match(list, /to=\{`\/risk-reviews\/\$\{reviewCase\.id\}`\}/)
+  assert.match(app, /path="risk-reviews\/:riskCode" element=\{<RiskReviewDetailPage \/>\}/)
+  assert.match(list, /api\.get<RiskReviewSummary\[\]>\('\/risk-reviews'/)
+  assert.match(list, /to=\{`\/risk-reviews\/\$\{encodeURIComponent\(reviewCase\.risk_code\)\}`\}/)
   assert.match(list, /\{reviewCase\.risk_code \|\| '-'\}/)
   assert.doesNotMatch(list, />\{reviewCase\.id\}</)
-  assert.match(detail, /api\.put<RiskReviewAnswer>\(`\/risk-reviews\/\$\{reviewCaseId\}\/answers`/)
+  assert.match(detail, /const \{ riskCode \} = useParams/)
+  assert.match(detail, /api\.get<RiskReviewCase>\(\s*`\/risk-reviews\/\$\{encodeURIComponent\(riskCode!\)\}`/)
+  assert.match(detail, /api\.put<RiskReviewAnswer>\(\s*`\/risk-reviews\/\$\{reviewCaseId\}\/answers`/)
   assert.match(detail, /attachments\.length\} \/ 10/)
+  assert.match(decisionCard, /navigate\(`\/risk-reviews\/\$\{encodeURIComponent\(reviewCase\.risk_code\)\}`\)/)
 })
 
 test('answer save preserves edits typed after the request starts', async () => {

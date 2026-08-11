@@ -11,6 +11,7 @@ from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Response, UploadFile
@@ -158,6 +159,21 @@ def _index_knowledge_candidate(
 
 def encode(value: Any) -> Any:
     return jsonable_encoder(value, custom_encoder={Decimal: str})
+
+
+def _attachment_content_disposition(filename: str) -> str:
+    normalized = filename.replace("\\", "/").rsplit("/", 1)[-1]
+    fallback = "".join(
+        character
+        if 0x20 <= ord(character) < 0x7F and character not in {'"', "\\", ";"}
+        else "_"
+        for character in normalized
+    ).strip(" .")
+    fallback = fallback[:150] or "attachment"
+    return (
+        f"attachment; filename=\"{fallback}\"; "
+        f"filename*=UTF-8''{quote(normalized, safe='')}"
+    )
 
 
 def _entity(store: dict[UUID, Any], entity_id: UUID, name: str) -> Any:
@@ -908,6 +924,7 @@ def list_risks(company_id: UUID) -> Any:
             for risk in repository.risks.values()
             if risk.company_id == company_id
             and is_visible_in_risk_lists(repository.risk_memory.get(risk.id, []))
+            and not repository.is_risk_transferred(risk.id)
         ]
     )
 
@@ -959,13 +976,54 @@ def _risk_review_payload(risk: Any) -> dict[str, Any]:
     }
 
 
+def _require_review_company(user: CurrentUser, company_id: UUID) -> None:
+    if user.company_id is None or user.company_id != company_id:
+        raise HTTPException(403, "company scope does not authorize this review")
+
+
+def _review_case_for_user(review_case_ref: UUID | str, user: CurrentUser) -> Any:
+    try:
+        review_case_id = UUID(str(review_case_ref))
+    except ValueError:
+        if user.company_id is None:
+            raise HTTPException(403, "company scope does not authorize this review")
+        review_case = repository.review_case_by_risk_code(
+            user.company_id, str(review_case_ref)
+        )
+    else:
+        review_case = repository.get_review_case(review_case_id)
+    if review_case is None:
+        raise HTTPException(404, "risk review case not found")
+    _require_review_company(user, review_case.company_id)
+    return review_case
+
+
+def _review_case_summary(review_case: Any) -> dict[str, Any]:
+    return {
+        "company_id": str(review_case.company_id),
+        "risk_code": review_case.risk_code,
+        "title": review_case.title,
+        "statement": review_case.statement,
+        "review_decision": review_case.review_decision,
+        "severity": review_case.severity,
+        "status": review_case.status,
+        "transferred_at": encode(review_case.transferred_at),
+    }
+
+
 @router.get("/risk-reviews")
-def list_risk_reviews(company_id: UUID) -> Any:
+def list_risk_reviews(
+    company_id: UUID,
+    user: CurrentUser = Depends(
+        require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)
+    ),
+) -> Any:
+    _require_review_company(user, company_id)
     return encode(
         [
-            _review_case_payload(review_case)
-            for review_case in repository.risk_review_cases.values()
-            if review_case.company_id == company_id
+            _review_case_summary(review_case)
+            for review_case in repository.review_cases_for_company(company_id)
+            if review_case.review_decision != "PASS"
         ]
     )
 
@@ -979,6 +1037,7 @@ def list_risk_management(company_id: UUID) -> Any:
             for risk in repository.risks.values()
             if risk.company_id == company_id
             and is_visible_in_risk_lists(repository.risk_memory.get(risk.id, []))
+            and not repository.is_risk_transferred(risk.id)
         ]
     )
 
@@ -1009,56 +1068,36 @@ def transfer_risk_to_review(
     ),
 ) -> Any:
     risk = _entity(repository.risks, risk_id, "risk")
+    _require_review_company(user, risk.company_id)
     decision = payload.review_decision.upper()
     severity = payload.severity.upper()
-    with repository._lock:
-        existing = repository.review_case_for_source_risk(risk.id)
-        try:
-            review_case = repository.create_review_case(
-                risk, review_decision=decision, severity=severity
-            )
-        except ValueError as exc:
-            raise HTTPException(422, str(exc)) from exc
-        if existing is None:
-            repository.append_memory(
-                RiskMemoryEntry(
-                    risk_id=risk.id,
-                    entry_type="RISK_TRANSFERRED",
-                    summary=f"Transferred to review case {risk.risk_code}",
-                    actor=user.user_id,
-                    metadata={"review_case_id": str(review_case.id), "risk_code": risk.risk_code},
-                )
-            )
-            repository.append_audit(
-                AuditLogEntry(
-                    action="RISK_TRANSFERRED",
-                    resource_type="Risk",
-                    resource_id=str(risk.id),
-                    actor=user.user_id,
-                    company_id=risk.company_id,
-                    reason=decision,
-                )
-            )
+    try:
+        review_case, _ = repository.transfer_risk_to_review(
+            risk,
+            review_decision=decision,
+            severity=severity,
+            actor=user.user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     return _review_case_payload(review_case)
 
 
 @router.get("/risk-reviews/{review_case_id}")
 def get_risk_review_case(
-    review_case_id: UUID,
-    _: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    review_case_id: str,
+    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
-    return _review_case_payload(
-        _entity(repository.risk_review_cases, review_case_id, "risk review case")
-    )
+    return _review_case_payload(_review_case_for_user(review_case_id, user))
 
 
 @router.put("/risk-reviews/{review_case_id}/answers")
 def save_risk_review_answer(
     review_case_id: UUID,
     payload: RiskReviewAnswerUpdate,
-    _: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
-    _entity(repository.risk_review_cases, review_case_id, "risk review case")
+    _review_case_for_user(review_case_id, user)
     return encode(
         repository.upsert_review_answer(
             review_case_id, question=payload.question, answer=payload.answer
@@ -1070,14 +1109,13 @@ def save_risk_review_answer(
 def set_risk_review_case_decision(
     review_case_id: UUID,
     payload: RiskReviewCaseDecision,
-    _: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
-    review_case = _entity(repository.risk_review_cases, review_case_id, "risk review case")
     decision = payload.decision.upper()
     if decision not in REVIEW_DECISIONS:
         raise HTTPException(422, "decision must be CHECK, PENDING, or PASS")
-    review_case.review_decision = decision
-    repository.save(review_case)
+    _review_case_for_user(review_case_id, user)
+    review_case = repository.update_review_case_decision(review_case_id, decision)
     return _review_case_payload(review_case)
 
 
@@ -1085,14 +1123,13 @@ def set_risk_review_case_decision(
 def set_risk_review_case_severity(
     review_case_id: UUID,
     payload: RiskReviewCaseSeverity,
-    _: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
-    review_case = _entity(repository.risk_review_cases, review_case_id, "risk review case")
     severity = payload.severity.upper()
     if severity not in RISK_SEVERITIES:
         raise HTTPException(422, "severity must be HIGH, MEDIUM, or LOW")
-    review_case.severity = severity
-    repository.save(review_case)
+    _review_case_for_user(review_case_id, user)
+    review_case = repository.update_review_case_severity(review_case_id, severity)
     return _review_case_payload(review_case)
 
 
@@ -1100,9 +1137,9 @@ def set_risk_review_case_severity(
 def add_risk_review_attachment(
     review_case_id: UUID,
     file: UploadFile = File(...),
-    _: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
-    _entity(repository.risk_review_cases, review_case_id, "risk review case")
+    _review_case_for_user(review_case_id, user)
     attachment = RiskReviewAttachment(
         review_case_id=review_case_id,
         filename=file.filename or "attachment",
@@ -1128,16 +1165,27 @@ def add_risk_review_attachment(
 def download_risk_review_attachment(
     review_case_id: UUID,
     attachment_id: UUID,
-    _: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Response:
-    _entity(repository.risk_review_cases, review_case_id, "risk review case")
-    attachment = repository.risk_review_attachments.get(attachment_id)
+    _review_case_for_user(review_case_id, user)
+    attachment = next(
+        (
+            item
+            for item in repository.attachments_for_review_case(review_case_id)
+            if item.id == attachment_id
+        ),
+        None,
+    )
     if attachment is None or attachment.review_case_id != review_case_id:
         raise HTTPException(404, "attachment not found")
     return Response(
         content=attachment.content,
         media_type=attachment.content_type,
-        headers={"Content-Disposition": f'attachment; filename="{attachment.filename}"'},
+        headers={
+            "Content-Disposition": _attachment_content_disposition(
+                attachment.filename
+            )
+        },
     )
 
 
@@ -1145,8 +1193,9 @@ def download_risk_review_attachment(
 def delete_risk_review_attachment(
     review_case_id: UUID,
     attachment_id: UUID,
-    _: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
+    _review_case_for_user(review_case_id, user)
     try:
         repository.remove_review_attachment(review_case_id, attachment_id)
     except KeyError as exc:

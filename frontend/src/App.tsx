@@ -20,7 +20,7 @@ export default function App() {
         <Route path="risks/:riskId" element={<RiskDetailPage />} />
         <Route path="events" element={<RiskReviewPage />} />
         <Route path="events/:eventId" element={<EventDetailPage />} />
-        <Route path="risk-reviews/:reviewCaseId" element={<RiskReviewDetailPage />} />
+        <Route path="risk-reviews/:riskCode" element={<RiskReviewDetailPage />} />
         <Route path="journals" element={<JournalPage />} />
         <Route path="uploads" element={<UploadPage />} />
         <Route path="settings" element={<SettingsPage />} />

@@ -11,7 +11,6 @@ import {
   FormControl,
   IconButton,
   InputLabel,
-  Link as MuiLink,
   MenuItem,
   Select,
   Stack,
@@ -26,7 +25,8 @@ import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import { Link, useParams } from 'react-router-dom'
-import { api, RiskReviewAnswer, RiskReviewAttachment, RiskReviewCase } from '../api'
+import { api, Company, companyScope, RiskReviewAnswer, RiskReviewAttachment, RiskReviewCase } from '../api'
+import { RiskReviewSnapshotEvidence } from './RiskReviewSnapshotEvidence'
 
 const primary = '#0056B0'
 const border = '#E5E7EB'
@@ -73,13 +73,17 @@ function ReadOnlyList({ items, emptyText }: { items?: string[]; emptyText: strin
   return <Stack component="ul" spacing={1} sx={{ pl: 2.5, mb: 0 }}>{items.map((item) => <Typography component="li" key={item} variant="body2" sx={{ lineHeight: 1.7 }}>{item}</Typography>)}</Stack>
 }
 
-function AnswerEditor({ reviewCaseId, question, savedAnswer }: { reviewCaseId: string; question: string; savedAnswer?: RiskReviewAnswer }) {
+function AnswerEditor({ reviewCaseId, companyId, cacheKey, question, savedAnswer }: { reviewCaseId: string; companyId: string; cacheKey: string; question: string; savedAnswer?: RiskReviewAnswer }) {
   const queryClient = useQueryClient()
   const [answer, setAnswer] = useState(savedAnswer?.answer ?? '')
   const mutation = useMutation({
-    mutationFn: async (submittedAnswer: string) => (await api.put<RiskReviewAnswer>(`/risk-reviews/${reviewCaseId}/answers`, { question, answer: submittedAnswer })).data,
+    mutationFn: async (submittedAnswer: string) => (await api.put<RiskReviewAnswer>(
+      `/risk-reviews/${reviewCaseId}/answers`,
+      { question, answer: submittedAnswer },
+      companyScope(companyId),
+    )).data,
     onSuccess: (saved) => {
-      queryClient.setQueryData<RiskReviewCase>(['risk-review', reviewCaseId], (current) => current ? {
+      queryClient.setQueryData<RiskReviewCase>(['risk-review', cacheKey], (current) => current ? {
         ...current,
         answers: [...current.answers.filter((item) => item.question !== question), saved],
       } : current)
@@ -132,18 +136,11 @@ function SnapshotCard({ reviewCase }: { reviewCase: RiskReviewCase }) {
       <Box><Typography fontWeight={700}>권장 증빙</Typography><ReadOnlyList items={pkg.evidence_checklist} emptyText="권장 증빙이 없습니다." /></Box>
       <Box><Typography fontWeight={700}>누락 사실</Typography><ReadOnlyList items={pkg.missing_facts} emptyText="누락 사실이 없습니다." /></Box>
     </Box>
-    {pkg.standards_evidence?.length ? <Box sx={{ mt: 2.5 }}>
-      <Typography fontWeight={700} sx={{ mb: 1.25 }}>기준서 근거</Typography>
-      <Stack spacing={1.25}>{pkg.standards_evidence.map((reference, index) => <Box key={`${reference.source}-${reference.title}-${index}`} sx={{ p: 1.5, border: `1px solid ${border}`, borderRadius: 2 }}>
-        <Typography fontWeight={700} variant="body2">{reference.source} · {reference.title}{reference.paragraph ? ` · ${reference.paragraph}` : ''}</Typography>
-        {reference.excerpt ? <Typography color="text.secondary" variant="body2" sx={{ mt: .75, lineHeight: 1.7 }}>{reference.excerpt}</Typography> : null}
-        {reference.url ? <MuiLink href={reference.url} target="_blank" rel="noreferrer" variant="body2" sx={{ display: 'inline-block', mt: .75 }}>원문 열기</MuiLink> : null}
-      </Box>)}</Stack>
-    </Box> : null}
+    <RiskReviewSnapshotEvidence package={pkg} />
   </CardContent></Card>
 }
 
-function AttachmentCard({ reviewCase }: { reviewCase: RiskReviewCase }) {
+function AttachmentCard({ reviewCase, companyId, cacheKey }: { reviewCase: RiskReviewCase; companyId: string; cacheKey: string }) {
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -155,20 +152,27 @@ function AttachmentCard({ reviewCase }: { reviewCase: RiskReviewCase }) {
     mutationFn: async (file: File) => {
       const form = new FormData()
       form.append('file', file)
-      return (await api.post<RiskReviewAttachment>(`/risk-reviews/${reviewCase.id}/attachments`, form)).data
+      return (await api.post<RiskReviewAttachment>(
+        `/risk-reviews/${reviewCase.id}/attachments`,
+        form,
+        companyScope(companyId),
+      )).data
     },
     onSuccess: (attachment) => {
       setMessage(null)
-      queryClient.setQueryData<RiskReviewCase>(['risk-review', reviewCase.id], (current) => current ? { ...current, attachments: [...current.attachments, attachment] } : current)
+      queryClient.setQueryData<RiskReviewCase>(['risk-review', cacheKey], (current) => current ? { ...current, attachments: [...current.attachments, attachment] } : current)
       if (fileInputRef.current) fileInputRef.current.value = ''
     },
     onError: (error) => setMessage(errorMessage(error, '첨부파일을 업로드하지 못했습니다.')),
   })
   const remove = useMutation({
-    mutationFn: async (attachmentId: string) => api.delete(`/risk-reviews/${reviewCase.id}/attachments/${attachmentId}`),
+    mutationFn: async (attachmentId: string) => api.delete(
+      `/risk-reviews/${reviewCase.id}/attachments/${attachmentId}`,
+      companyScope(companyId),
+    ),
     onSuccess: (_, attachmentId) => {
       setMessage(null)
-      queryClient.setQueryData<RiskReviewCase>(['risk-review', reviewCase.id], (current) => current ? { ...current, attachments: current.attachments.filter((item) => item.id !== attachmentId) } : current)
+      queryClient.setQueryData<RiskReviewCase>(['risk-review', cacheKey], (current) => current ? { ...current, attachments: current.attachments.filter((item) => item.id !== attachmentId) } : current)
     },
     onError: (error) => setMessage(errorMessage(error, '첨부파일을 삭제하지 못했습니다.')),
   })
@@ -177,7 +181,10 @@ function AttachmentCard({ reviewCase }: { reviewCase: RiskReviewCase }) {
     setMessage(null)
     setDownloadingId(attachment.id)
     try {
-      const response = await api.get<Blob>(`/risk-reviews/${reviewCase.id}/attachments/${attachment.id}/download`, { responseType: 'blob' })
+      const response = await api.get<Blob>(
+        `/risk-reviews/${reviewCase.id}/attachments/${attachment.id}/download`,
+        { responseType: 'blob', ...companyScope(companyId) },
+      )
       const href = URL.createObjectURL(response.data)
       const anchor = document.createElement('a')
       anchor.href = href
@@ -231,54 +238,80 @@ function AttachmentCard({ reviewCase }: { reviewCase: RiskReviewCase }) {
 }
 
 export function RiskReviewDetailPage() {
-  const { reviewCaseId } = useParams()
+  const { riskCode } = useParams()
   const queryClient = useQueryClient()
   const [controlError, setControlError] = useState<string | null>(null)
-  const { data: reviewCase, isError, error } = useQuery({
-    queryKey: ['risk-review', reviewCaseId],
-    enabled: Boolean(reviewCaseId),
-    queryFn: async () => (await api.get<RiskReviewCase>(`/risk-reviews/${reviewCaseId}`)).data,
+  const { data: companies, isLoading: isCompanyLoading, isError: isCompanyError } = useQuery({
+    queryKey: ['companies'],
+    queryFn: async () => (await api.get<Company[]>('/companies')).data,
   })
+  const company = companies?.[0]
+  const { data: reviewCase, isError, error } = useQuery({
+    queryKey: ['risk-review', riskCode],
+    enabled: Boolean(riskCode && company),
+    queryFn: async () => (await api.get<RiskReviewCase>(
+      `/risk-reviews/${encodeURIComponent(riskCode!)}`,
+      companyScope(company!.id),
+    )).data,
+  })
+  const reviewCaseId = reviewCase?.id
 
   const decision = useMutation({
-    mutationFn: async (value: RiskReviewCase['review_decision']) => (await api.post<RiskReviewCase>(`/risk-reviews/${reviewCaseId}/review-decision`, { decision: value })).data,
+    mutationFn: async (value: RiskReviewCase['review_decision']) => {
+      if (!reviewCaseId || !company) throw new Error('review case is not loaded')
+      return (await api.post<RiskReviewCase>(
+        `/risk-reviews/${reviewCaseId}/review-decision`,
+        { decision: value },
+        companyScope(company.id),
+      )).data
+    },
     onMutate: async (value) => {
       setControlError(null)
-      await queryClient.cancelQueries({ queryKey: ['risk-review', reviewCaseId] })
-      const previous = queryClient.getQueryData<RiskReviewCase>(['risk-review', reviewCaseId])
-      queryClient.setQueryData<RiskReviewCase>(['risk-review', reviewCaseId], (current) => current ? { ...current, review_decision: value } : current)
+      await queryClient.cancelQueries({ queryKey: ['risk-review', riskCode] })
+      const previous = queryClient.getQueryData<RiskReviewCase>(['risk-review', riskCode])
+      queryClient.setQueryData<RiskReviewCase>(['risk-review', riskCode], (current) => current ? { ...current, review_decision: value } : current)
       return { previousDecision: previous?.review_decision }
     },
     onError: (mutationError, _, context) => {
       const previousDecision = context?.previousDecision
-      if (previousDecision) queryClient.setQueryData<RiskReviewCase>(['risk-review', reviewCaseId], (current) => current ? { ...current, review_decision: previousDecision } : current)
+      if (previousDecision) queryClient.setQueryData<RiskReviewCase>(['risk-review', riskCode], (current) => current ? { ...current, review_decision: previousDecision } : current)
       setControlError(errorMessage(mutationError, '검토 분류를 변경하지 못했습니다.'))
     },
-    onSuccess: (updated) => queryClient.setQueryData<RiskReviewCase>(['risk-review', reviewCaseId], (current) => current ? { ...current, review_decision: updated.review_decision } : updated),
+    onSuccess: (updated) => queryClient.setQueryData<RiskReviewCase>(['risk-review', riskCode], (current) => current ? { ...current, review_decision: updated.review_decision } : updated),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: ['risk-reviews'] }),
   })
   const severity = useMutation({
-    mutationFn: async (value: RiskReviewCase['severity']) => (await api.post<RiskReviewCase>(`/risk-reviews/${reviewCaseId}/severity`, { severity: value })).data,
+    mutationFn: async (value: RiskReviewCase['severity']) => {
+      if (!reviewCaseId || !company) throw new Error('review case is not loaded')
+      return (await api.post<RiskReviewCase>(
+        `/risk-reviews/${reviewCaseId}/severity`,
+        { severity: value },
+        companyScope(company.id),
+      )).data
+    },
     onMutate: async (value) => {
       setControlError(null)
-      await queryClient.cancelQueries({ queryKey: ['risk-review', reviewCaseId] })
-      const previous = queryClient.getQueryData<RiskReviewCase>(['risk-review', reviewCaseId])
-      queryClient.setQueryData<RiskReviewCase>(['risk-review', reviewCaseId], (current) => current ? { ...current, severity: value } : current)
+      await queryClient.cancelQueries({ queryKey: ['risk-review', riskCode] })
+      const previous = queryClient.getQueryData<RiskReviewCase>(['risk-review', riskCode])
+      queryClient.setQueryData<RiskReviewCase>(['risk-review', riskCode], (current) => current ? { ...current, severity: value } : current)
       return { previousSeverity: previous?.severity }
     },
     onError: (mutationError, _, context) => {
       const previousSeverity = context?.previousSeverity
-      if (previousSeverity) queryClient.setQueryData<RiskReviewCase>(['risk-review', reviewCaseId], (current) => current ? { ...current, severity: previousSeverity } : current)
+      if (previousSeverity) queryClient.setQueryData<RiskReviewCase>(['risk-review', riskCode], (current) => current ? { ...current, severity: previousSeverity } : current)
       setControlError(errorMessage(mutationError, '심각도를 변경하지 못했습니다.'))
     },
-    onSuccess: (updated) => queryClient.setQueryData<RiskReviewCase>(['risk-review', reviewCaseId], (current) => current ? { ...current, severity: updated.severity } : updated),
+    onSuccess: (updated) => queryClient.setQueryData<RiskReviewCase>(['risk-review', riskCode], (current) => current ? { ...current, severity: updated.severity } : updated),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: ['risk-reviews'] }),
   })
   const controlsPending = decision.isPending || severity.isPending
 
-  if (!reviewCaseId) return <Alert severity="error">검토 케이스 경로가 올바르지 않습니다.</Alert>
-  if (isError) return <Alert severity="error">{errorMessage(error, '검토 케이스를 불러오지 못했습니다.')}</Alert>
+  if (!riskCode) return <Alert severity="error">검토 케이스 경로가 올바르지 않습니다.</Alert>
+  if (isCompanyError || isError) return <Alert severity="error">{errorMessage(error, '검토 케이스를 불러오지 못했습니다.')}</Alert>
+  if (!isCompanyLoading && !company) return <Alert severity="info">먼저 설정에서 회사를 등록해 주세요.</Alert>
   if (!reviewCase) return <Box sx={{ py: 8, textAlign: 'center' }}><CircularProgress size={30} /></Box>
+  if (!company) return <Box sx={{ py: 8, textAlign: 'center' }}><CircularProgress size={30} /></Box>
+  const companyId = company.id
 
   const questions = [...new Set([...(reviewCase.package.expected_questions ?? []), ...reviewCase.answers.map((item) => item.question)])]
   const answerByQuestion = new Map(reviewCase.answers.map((item) => [item.question, item]))
@@ -326,10 +359,10 @@ export function RiskReviewDetailPage() {
         <SectionTitle action={<Chip label={`${reviewCase.answers.filter((item) => item.answer.trim()).length} / ${questions.length}`} size="small" variant="outlined" />}>검토 질문 및 답변</SectionTitle>
         <Typography color="text.secondary" variant="body2" sx={{ mt: 1.5 }}>각 질문의 답변은 개별적으로 저장됩니다.</Typography>
         <Stack spacing={1.5} sx={{ mt: 2 }}>
-          {questions.length ? questions.map((question) => <AnswerEditor key={question} reviewCaseId={reviewCase.id} question={question} savedAnswer={answerByQuestion.get(question)} />) : <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>이관된 검토 질문이 없습니다.</Typography>}
+          {questions.length ? questions.map((question) => <AnswerEditor key={question} reviewCaseId={reviewCase.id} companyId={companyId} cacheKey={riskCode} question={question} savedAnswer={answerByQuestion.get(question)} />) : <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>이관된 검토 질문이 없습니다.</Typography>}
         </Stack>
       </CardContent></Card>
-      <AttachmentCard reviewCase={reviewCase} />
+      <AttachmentCard reviewCase={reviewCase} companyId={companyId} cacheKey={riskCode} />
     </Stack>
   </Box>
 }

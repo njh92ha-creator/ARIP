@@ -3,9 +3,10 @@ from __future__ import annotations
 from collections import defaultdict
 from copy import deepcopy
 from dataclasses import asdict
+import re
 from threading import RLock
 from typing import Any, TypeVar
-from uuid import UUID
+from uuid import UUID, NAMESPACE_URL, uuid5
 import os
 import pickle
 from sqlalchemy import text
@@ -74,6 +75,58 @@ def hydrate_legacy_object(obj: Any) -> None:
 
 T = TypeVar("T")
 
+RISK_CODE_PATTERN = re.compile(r"^(AS|LI|EQ|SA|CO)_\d{8}_\d{3}$")
+
+
+def _pickle_payload(value: Any) -> bytes:
+    return pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def _upsert_state(connection: Any, collection: str, object_id: str, value: Any) -> None:
+    connection.execute(
+        text("""
+            insert into arip_state (collection, object_id, payload)
+            values (:collection, :object_id, :payload)
+            on conflict (collection, object_id) do update
+            set payload = excluded.payload, updated_at = current_timestamp
+        """),
+        {
+            "collection": collection,
+            "object_id": object_id,
+            "payload": _pickle_payload(value),
+        },
+    )
+
+
+def _insert_state_once(
+    connection: Any, collection: str, object_id: str, value: Any
+) -> bool:
+    inserted = connection.execute(
+        text("""
+            insert into arip_state (collection, object_id, payload)
+            values (:collection, :object_id, :payload)
+            on conflict (collection, object_id) do nothing
+            returning object_id
+        """),
+        {
+            "collection": collection,
+            "object_id": object_id,
+            "payload": _pickle_payload(value),
+        },
+    ).scalar_one_or_none()
+    return inserted is not None
+
+
+def _state_value(connection: Any, collection: str, object_id: str) -> Any | None:
+    payload = connection.execute(
+        text("""
+            select payload from arip_state
+            where collection = :collection and object_id = :object_id
+        """),
+        {"collection": collection, "object_id": object_id},
+    ).scalar_one_or_none()
+    return pickle.loads(bytes(payload)) if payload is not None else None
+
 
 class InMemoryRepository:
     """Compatibility repository backed by PostgreSQL when available."""
@@ -140,14 +193,30 @@ class InMemoryRepository:
             self._db_ready = False
             self.last_db_error = type(exc).__name__
 
+    def _sync_transfer_marker(self, marker: dict[str, Any]) -> None:
+        memory_entry = marker.get("memory")
+        if isinstance(memory_entry, RiskMemoryEntry):
+            entries = self.risk_memory[memory_entry.risk_id]
+            if all(entry.id != memory_entry.id for entry in entries):
+                entries.append(memory_entry)
+        audit_entry = marker.get("audit")
+        if isinstance(audit_entry, AuditLogEntry) and all(
+            entry.id != audit_entry.id for entry in self.audit_log
+        ):
+            self.audit_log.append(audit_entry)
+
     def _restore(self) -> None:
         if not self._db_ready:
             return
         try:
+            transfer_markers: list[dict[str, Any]] = []
             with engine.connect() as connection:
                 rows = connection.execute(text("select collection, object_id, payload from arip_state"))
                 for collection, object_id, payload in rows:
                     obj = pickle.loads(bytes(payload))
+                    if collection == "RiskReviewTransfer" and isinstance(obj, dict):
+                        transfer_markers.append(obj)
+                        continue
                     hydrate_legacy_object(obj)
                     store_name = {
                         "CompanySettings": "companies",
@@ -182,6 +251,8 @@ class InMemoryRepository:
                         self.risk_memory[obj.risk_id].append(obj)
                     elif collection == "audit_log" and isinstance(obj, AuditLogEntry):
                         self.audit_log.append(obj)
+            for marker in transfer_markers:
+                self._sync_transfer_marker(marker)
         except Exception as exc:
             self._db_ready = False
             self.last_db_error = type(exc).__name__
@@ -459,9 +530,103 @@ class InMemoryRepository:
                 self.last_db_error = type(exc).__name__
             return risk
 
+    @staticmethod
+    def _validate_review_transfer(
+        source_risk: Risk, review_decision: str, severity: str
+    ) -> None:
+        if review_decision not in {"CHECK", "PENDING"}:
+            raise ValueError("review decision must be CHECK or PENDING")
+        if severity not in {"HIGH", "MEDIUM", "LOW"}:
+            raise ValueError("severity must be HIGH, MEDIUM, or LOW")
+        if not RISK_CODE_PATTERN.fullmatch(source_risk.risk_code or ""):
+            raise ValueError(
+                "risk code must match AS|LI|EQ|SA|CO_YYYYMMDD_NNN before transfer"
+            )
+
+    def _ensure_review_persistence(self) -> None:
+        if self._persistence_enabled and not self._db_ready:
+            raise RuntimeError("review persistence is unavailable")
+
+    @staticmethod
+    def _build_review_case(
+        source_risk: Risk, review_decision: str, severity: str
+    ) -> RiskReviewCase:
+        return RiskReviewCase(
+            company_id=source_risk.company_id,
+            source_risk_id=source_risk.id,
+            risk_code=source_risk.risk_code,
+            title=source_risk.title,
+            statement=source_risk.statement,
+            level=source_risk.level,
+            score=source_risk.score,
+            route=source_risk.route,
+            package=deepcopy(source_risk.package),
+            review_decision=review_decision,
+            severity=severity,
+            materiality_level=source_risk.materiality_level,
+            closing_analysis_set_id=source_risk.closing_analysis_set_id,
+            cross_finding_ids=deepcopy(source_risk.cross_finding_ids),
+        )
+
+    def get_review_case(self, review_case_id: UUID) -> RiskReviewCase | None:
+        with self._lock:
+            review_case = self.risk_review_cases.get(review_case_id)
+            if self._db_ready:
+                with engine.connect() as connection:
+                    persisted = _state_value(
+                        connection, "RiskReviewCase", str(review_case_id)
+                    )
+                    if isinstance(persisted, RiskReviewCase):
+                        hydrate_legacy_object(persisted)
+                        review_case = persisted
+                    if review_case is not None:
+                        decision = _state_value(
+                            connection, "RiskReviewCaseDecision", str(review_case_id)
+                        )
+                        severity = _state_value(
+                            connection, "RiskReviewCaseSeverity", str(review_case_id)
+                        )
+                        if isinstance(decision, str):
+                            review_case.review_decision = decision
+                        if isinstance(severity, str):
+                            review_case.severity = severity
+            if review_case is not None:
+                self.risk_review_cases[review_case.id] = review_case
+            return review_case
+
+    def review_cases_for_company(self, company_id: UUID) -> list[RiskReviewCase]:
+        with self._lock:
+            case_ids = {
+                case.id
+                for case in self.risk_review_cases.values()
+                if case.company_id == company_id
+            }
+            if self._db_ready:
+                with engine.connect() as connection:
+                    rows = connection.execute(
+                        text("select payload from arip_state where collection = 'RiskReviewCase'")
+                    )
+                    for (payload,) in rows:
+                        case = pickle.loads(bytes(payload))
+                        if isinstance(case, RiskReviewCase) and case.company_id == company_id:
+                            case_ids.add(case.id)
+            return [
+                case
+                for case_id in case_ids
+                if (case := self.get_review_case(case_id)) is not None
+            ]
+
     def review_case_for_source_risk(self, source_risk_id: UUID) -> RiskReviewCase | None:
         with self._lock:
-            return next(
+            if self._db_ready:
+                with engine.connect() as connection:
+                    marker = _state_value(
+                        connection, "RiskReviewTransfer", str(source_risk_id)
+                    )
+                if isinstance(marker, dict) and marker.get("case_id"):
+                    self._sync_transfer_marker(marker)
+                    return self.get_review_case(UUID(str(marker["case_id"])))
+            existing = next(
                 (
                     case
                     for case in self.risk_review_cases.values()
@@ -469,56 +634,227 @@ class InMemoryRepository:
                 ),
                 None,
             )
+            if existing is not None or not self._db_ready:
+                return existing
+            with engine.connect() as connection:
+                rows = connection.execute(
+                    text("select payload from arip_state where collection = 'RiskReviewCase'")
+                )
+                for (payload,) in rows:
+                    case = pickle.loads(bytes(payload))
+                    if isinstance(case, RiskReviewCase) and case.source_risk_id == source_risk_id:
+                        self.risk_review_cases[case.id] = case
+                        return self.get_review_case(case.id)
+            return None
+
+    def review_case_by_risk_code(
+        self, company_id: UUID, risk_code: str
+    ) -> RiskReviewCase | None:
+        with self._lock:
+            if self._db_ready:
+                with engine.connect() as connection:
+                    case_id = _state_value(
+                        connection,
+                        "RiskReviewCaseByCode",
+                        f"{company_id}:{risk_code}",
+                    )
+                if case_id is not None:
+                    return self.get_review_case(UUID(str(case_id)))
+            return next(
+                (
+                    case
+                    for case in self.review_cases_for_company(company_id)
+                    if case.risk_code == risk_code
+                ),
+                None,
+            )
+
+    def is_risk_transferred(self, source_risk_id: UUID) -> bool:
+        if self._db_ready:
+            with engine.connect() as connection:
+                if _state_value(
+                    connection, "RiskReviewTransfer", str(source_risk_id)
+                ) is not None:
+                    return True
+        return self.review_case_for_source_risk(source_risk_id) is not None
 
     def create_review_case(
         self, source_risk: Risk, *, review_decision: str, severity: str
     ) -> RiskReviewCase:
         """Create one review case per source risk, preserving its transfer-time snapshot."""
         with self._lock:
-            if review_decision not in {"CHECK", "PENDING"}:
-                raise ValueError("review decision must be CHECK or PENDING")
-            if severity not in {"HIGH", "MEDIUM", "LOW"}:
-                raise ValueError("severity must be HIGH, MEDIUM, or LOW")
+            self._ensure_review_persistence()
+            self._validate_review_transfer(source_risk, review_decision, severity)
             existing = self.review_case_for_source_risk(source_risk.id)
             if existing is not None:
                 return existing
-            review_case = RiskReviewCase(
-                company_id=source_risk.company_id,
-                source_risk_id=source_risk.id,
-                risk_code=source_risk.risk_code,
-                title=source_risk.title,
-                statement=source_risk.statement,
-                level=source_risk.level,
-                score=source_risk.score,
-                route=source_risk.route,
-                package=deepcopy(source_risk.package),
-                review_decision=review_decision,
-                severity=severity,
-                materiality_level=source_risk.materiality_level,
-                closing_analysis_set_id=source_risk.closing_analysis_set_id,
-                cross_finding_ids=deepcopy(source_risk.cross_finding_ids),
+            duplicate = self.review_case_by_risk_code(
+                source_risk.company_id, source_risk.risk_code
+            )
+            if duplicate is not None:
+                raise ValueError("risk code already belongs to another review case")
+            review_case = self._build_review_case(
+                source_risk, review_decision, severity
             )
             return self.save(review_case)
 
+    def transfer_risk_to_review(
+        self,
+        source_risk: Risk,
+        *,
+        review_decision: str,
+        severity: str,
+        actor: str,
+    ) -> tuple[RiskReviewCase, bool]:
+        """Atomically claim a source risk and persist its case, marker, and audit."""
+        with self._lock:
+            self._ensure_review_persistence()
+            self._validate_review_transfer(source_risk, review_decision, severity)
+            existing = self.review_case_for_source_risk(source_risk.id)
+            duplicate = self.review_case_by_risk_code(
+                source_risk.company_id, source_risk.risk_code
+            )
+            if (
+                duplicate is not None
+                and duplicate.source_risk_id != source_risk.id
+            ):
+                raise ValueError("risk code already belongs to another review case")
+            if not self._db_ready:
+                review_case = self.create_review_case(
+                    source_risk,
+                    review_decision=review_decision,
+                    severity=severity,
+                )
+                created = existing is None
+                if created:
+                    memory = RiskMemoryEntry(
+                        risk_id=source_risk.id,
+                        entry_type="RISK_TRANSFERRED",
+                        summary=f"Transferred to review case {source_risk.risk_code}",
+                        actor=actor,
+                        metadata={
+                            "review_case_id": str(review_case.id),
+                            "risk_code": source_risk.risk_code,
+                        },
+                    )
+                    audit = AuditLogEntry(
+                        action="RISK_TRANSFERRED",
+                        resource_type="Risk",
+                        resource_id=str(source_risk.id),
+                        actor=actor,
+                        company_id=source_risk.company_id,
+                        reason=review_decision,
+                    )
+                    self.risk_memory[source_risk.id].append(memory)
+                    self.audit_log.append(audit)
+                return review_case, created
+
+            review_case = existing or self._build_review_case(
+                source_risk, review_decision, severity
+            )
+            marker: dict[str, Any] = {
+                "case_id": str(review_case.id),
+                "memory": RiskMemoryEntry(
+                    risk_id=source_risk.id,
+                    entry_type="RISK_TRANSFERRED",
+                    summary=f"Transferred to review case {source_risk.risk_code}",
+                    actor=actor,
+                    metadata={
+                        "review_case_id": str(review_case.id),
+                        "risk_code": source_risk.risk_code,
+                    },
+                ),
+                "audit": AuditLogEntry(
+                    action="RISK_TRANSFERRED",
+                    resource_type="Risk",
+                    resource_id=str(source_risk.id),
+                    actor=actor,
+                    company_id=source_risk.company_id,
+                    reason=review_decision,
+                ),
+            }
+            with engine.begin() as connection:
+                created = _insert_state_once(
+                    connection,
+                    "RiskReviewTransfer",
+                    str(source_risk.id),
+                    marker,
+                )
+                if created:
+                    code_key = f"{source_risk.company_id}:{source_risk.risk_code}"
+                    if not _insert_state_once(
+                        connection,
+                        "RiskReviewCaseByCode",
+                        code_key,
+                        str(review_case.id),
+                    ):
+                        owner_id = _state_value(
+                            connection, "RiskReviewCaseByCode", code_key
+                        )
+                        if str(owner_id) != str(review_case.id):
+                            raise ValueError(
+                                "risk code already belongs to another review case"
+                            )
+                    _upsert_state(
+                        connection,
+                        "RiskReviewCase",
+                        str(review_case.id),
+                        review_case,
+                    )
+                else:
+                    persisted_marker = _state_value(
+                        connection, "RiskReviewTransfer", str(source_risk.id)
+                    )
+                    if not isinstance(persisted_marker, dict):
+                        raise RuntimeError("review transfer marker is invalid")
+                    marker = persisted_marker
+
+            self._sync_transfer_marker(marker)
+            persisted_case = self.get_review_case(UUID(str(marker["case_id"])))
+            if persisted_case is None:
+                raise RuntimeError("review transfer case is missing")
+            return persisted_case, created
+
     def answers_for_review_case(self, review_case_id: UUID) -> list[RiskReviewAnswer]:
         with self._lock:
-            return [
+            if self._db_ready:
+                loaded: dict[UUID, RiskReviewAnswer] = {}
+                with engine.connect() as connection:
+                    rows = connection.execute(
+                        text("select payload from arip_state where collection = 'RiskReviewAnswer'")
+                    )
+                    for (payload,) in rows:
+                        answer = pickle.loads(bytes(payload))
+                        if (
+                            isinstance(answer, RiskReviewAnswer)
+                            and answer.review_case_id == review_case_id
+                        ):
+                            loaded[answer.id] = answer
+                self.risk_review_answers.update(loaded)
+            answers = [
                 answer
                 for answer in self.risk_review_answers.values()
                 if answer.review_case_id == review_case_id
             ]
+            by_question: dict[str, RiskReviewAnswer] = {}
+            for answer in answers:
+                current = by_question.get(answer.question)
+                if current is None or answer.updated_at >= current.updated_at:
+                    by_question[answer.question] = answer
+            return list(by_question.values())
 
     def upsert_review_answer(
         self, review_case_id: UUID, *, question: str, answer: str
     ) -> RiskReviewAnswer:
         with self._lock:
-            if review_case_id not in self.risk_review_cases:
+            self._ensure_review_persistence()
+            if self.get_review_case(review_case_id) is None:
                 raise KeyError(review_case_id)
             existing = next(
                 (
                     item
-                    for item in self.risk_review_answers.values()
-                    if item.review_case_id == review_case_id and item.question == question
+                    for item in self.answers_for_review_case(review_case_id)
+                    if item.question == question
                 ),
                 None,
             )
@@ -527,14 +863,86 @@ class InMemoryRepository:
                     review_case_id=review_case_id,
                     question=question,
                     answer=answer,
+                    id=uuid5(
+                        NAMESPACE_URL,
+                        f"arip:review-answer:{review_case_id}:{question}",
+                    ),
                 )
             else:
                 existing.answer = answer
                 existing.updated_at = utcnow()
+            if self._db_ready:
+                with engine.begin() as connection:
+                    _upsert_state(
+                        connection,
+                        "RiskReviewAnswer",
+                        str(existing.id),
+                        existing,
+                    )
+                self.risk_review_answers[existing.id] = existing
+                return existing
             return self.save(existing)
+
+    def update_review_case_decision(
+        self, review_case_id: UUID, decision: str
+    ) -> RiskReviewCase:
+        if decision not in {"CHECK", "PENDING", "PASS"}:
+            raise ValueError("decision must be CHECK, PENDING, or PASS")
+        with self._lock:
+            self._ensure_review_persistence()
+            review_case = self.get_review_case(review_case_id)
+            if review_case is None:
+                raise KeyError(review_case_id)
+            if self._db_ready:
+                with engine.begin() as connection:
+                    _upsert_state(
+                        connection,
+                        "RiskReviewCaseDecision",
+                        str(review_case_id),
+                        decision,
+                    )
+            review_case.review_decision = decision
+            self.risk_review_cases[review_case_id] = review_case
+            return review_case
+
+    def update_review_case_severity(
+        self, review_case_id: UUID, severity: str
+    ) -> RiskReviewCase:
+        if severity not in {"HIGH", "MEDIUM", "LOW"}:
+            raise ValueError("severity must be HIGH, MEDIUM, or LOW")
+        with self._lock:
+            self._ensure_review_persistence()
+            review_case = self.get_review_case(review_case_id)
+            if review_case is None:
+                raise KeyError(review_case_id)
+            if self._db_ready:
+                with engine.begin() as connection:
+                    _upsert_state(
+                        connection,
+                        "RiskReviewCaseSeverity",
+                        str(review_case_id),
+                        severity,
+                    )
+            review_case.severity = severity
+            self.risk_review_cases[review_case_id] = review_case
+            return review_case
 
     def attachments_for_review_case(self, review_case_id: UUID) -> list[RiskReviewAttachment]:
         with self._lock:
+            if self._db_ready:
+                loaded: dict[UUID, RiskReviewAttachment] = {}
+                with engine.connect() as connection:
+                    rows = connection.execute(
+                        text("select payload from arip_state where collection = 'RiskReviewAttachment'")
+                    )
+                    for (payload,) in rows:
+                        attachment = pickle.loads(bytes(payload))
+                        if (
+                            isinstance(attachment, RiskReviewAttachment)
+                            and attachment.review_case_id == review_case_id
+                        ):
+                            loaded[attachment.id] = attachment
+                self.risk_review_attachments.update(loaded)
             return [
                 attachment
                 for attachment in self.risk_review_attachments.values()
@@ -545,8 +953,57 @@ class InMemoryRepository:
         self, attachment: RiskReviewAttachment
     ) -> RiskReviewAttachment:
         with self._lock:
-            if attachment.review_case_id not in self.risk_review_cases:
+            self._ensure_review_persistence()
+            if self.get_review_case(attachment.review_case_id) is None:
                 raise KeyError(attachment.review_case_id)
+            if self._db_ready:
+                with engine.begin() as connection:
+                    rows = connection.execute(
+                        text("select payload from arip_state where collection = 'RiskReviewAttachment'")
+                    )
+                    existing_attachments = []
+                    for (payload,) in rows:
+                        candidate = pickle.loads(bytes(payload))
+                        if (
+                            isinstance(candidate, RiskReviewAttachment)
+                            and candidate.review_case_id == attachment.review_case_id
+                        ):
+                            existing_attachments.append(candidate)
+                    if len(existing_attachments) >= 10:
+                        raise ValueError(
+                            "a review case cannot have more than 10 attachments"
+                        )
+                    for index, candidate in enumerate(
+                        sorted(existing_attachments, key=lambda item: str(item.id))
+                    ):
+                        _insert_state_once(
+                            connection,
+                            "RiskReviewAttachmentSlot",
+                            f"{attachment.review_case_id}:{index:02d}",
+                            str(candidate.id),
+                        )
+                    claimed = False
+                    for index in range(10):
+                        if _insert_state_once(
+                            connection,
+                            "RiskReviewAttachmentSlot",
+                            f"{attachment.review_case_id}:{index:02d}",
+                            str(attachment.id),
+                        ):
+                            claimed = True
+                            break
+                    if not claimed:
+                        raise ValueError(
+                            "a review case cannot have more than 10 attachments"
+                        )
+                    _upsert_state(
+                        connection,
+                        "RiskReviewAttachment",
+                        str(attachment.id),
+                        attachment,
+                    )
+                self.risk_review_attachments[attachment.id] = attachment
+                return attachment
             if len(self.attachments_for_review_case(attachment.review_case_id)) >= 10:
                 raise ValueError("a review case cannot have more than 10 attachments")
             return self.save(attachment)
@@ -555,20 +1012,33 @@ class InMemoryRepository:
         self, review_case_id: UUID, attachment_id: UUID
     ) -> RiskReviewAttachment:
         with self._lock:
-            attachment = self.risk_review_attachments.get(attachment_id)
+            self._ensure_review_persistence()
+            attachment = next(
+                (
+                    item
+                    for item in self.attachments_for_review_case(review_case_id)
+                    if item.id == attachment_id
+                ),
+                None,
+            )
             if attachment is None or attachment.review_case_id != review_case_id:
                 raise KeyError(attachment_id)
             self.risk_review_attachments.pop(attachment_id)
             if self._db_ready:
-                try:
-                    with engine.begin() as connection:
-                        connection.execute(
-                            text("delete from arip_state where collection = :collection and object_id = :object_id"),
-                            {"collection": "RiskReviewAttachment", "object_id": str(attachment_id)},
-                        )
-                except Exception as exc:
-                    self._db_ready = False
-                    self.last_db_error = type(exc).__name__
+                with engine.begin() as connection:
+                    connection.execute(
+                        text("delete from arip_state where collection = :collection and object_id = :object_id"),
+                        {"collection": "RiskReviewAttachment", "object_id": str(attachment_id)},
+                    )
+                    slots = connection.execute(
+                        text("select object_id, payload from arip_state where collection = 'RiskReviewAttachmentSlot'")
+                    )
+                    for slot_id, payload in slots:
+                        if str(pickle.loads(bytes(payload))) == str(attachment_id):
+                            connection.execute(
+                                text("delete from arip_state where collection = 'RiskReviewAttachmentSlot' and object_id = :object_id"),
+                                {"object_id": slot_id},
+                            )
             return attachment
 
     def remove_company(self, company_id: UUID) -> CompanySettings:

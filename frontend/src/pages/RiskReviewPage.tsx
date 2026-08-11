@@ -1,13 +1,13 @@
 import { Alert, Box, Card, Chip, CircularProgress, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { api, Company, RiskReviewCase } from '../api'
+import { api, Company, companyScope, RiskReviewSummary } from '../api'
 
 const primary = '#0056B0'
 const border = '#E5E7EB'
 const cardSx = { borderColor: border, borderRadius: '12px', boxShadow: '0 1px 2px rgba(16,24,40,.04)' }
-const decisionLabel: Record<RiskReviewCase['review_decision'], string> = { CHECK: 'Check', PENDING: 'Pending', PASS: 'Pass' }
-const severityLabel: Record<RiskReviewCase['severity'], string> = { HIGH: 'High', MEDIUM: 'Medium', LOW: 'Low' }
+const decisionLabel: Record<RiskReviewSummary['review_decision'], string> = { CHECK: 'Check', PENDING: 'Pending', PASS: 'Pass' }
+const severityLabel: Record<RiskReviewSummary['severity'], string> = { HIGH: 'High', MEDIUM: 'Medium', LOW: 'Low' }
 
 function formatTransferredAt(value: string) {
   if (Number.isNaN(new Date(value).getTime())) return '-'
@@ -22,11 +22,11 @@ function formatTransferredAt(value: string) {
   }).format(new Date(value)).replace(',', '')
 }
 
-function DecisionChip({ value }: { value: RiskReviewCase['review_decision'] }) {
+function DecisionChip({ value }: { value: RiskReviewSummary['review_decision'] }) {
   return <Chip size="small" label={decisionLabel[value]} color={value === 'PENDING' ? 'warning' : 'primary'} variant="outlined" />
 }
 
-function SeverityChip({ value }: { value: RiskReviewCase['severity'] }) {
+function SeverityChip({ value }: { value: RiskReviewSummary['severity'] }) {
   const color = value === 'HIGH' ? 'error' : value === 'MEDIUM' ? 'warning' : 'primary'
   return <Chip size="small" label={severityLabel[value]} color={color} variant={value === 'HIGH' ? 'filled' : 'outlined'} />
 }
@@ -40,7 +40,10 @@ export function RiskReviewPage() {
   const { data = [], isLoading, isError } = useQuery({
     queryKey: ['risk-reviews', company?.id],
     enabled: Boolean(company),
-    queryFn: async () => (await api.get<RiskReviewCase[]>('/risk-reviews', { params: { company_id: company!.id } })).data,
+    queryFn: async () => (await api.get<RiskReviewSummary[]>('/risk-reviews', {
+      params: { company_id: company!.id },
+      ...companyScope(company!.id),
+    })).data,
   })
   const activeCases = data.filter((reviewCase) => reviewCase.review_decision !== 'PASS')
   const hasLoadError = isCompanyError || isError
@@ -56,9 +59,9 @@ export function RiskReviewPage() {
         <TableBody>
           {isCompanyLoading || (company && isLoading) ? <TableRow><TableCell colSpan={6} align="center" sx={{ py: 8 }}><CircularProgress size={28} /></TableCell></TableRow> :
             activeCases.length === 0 ? <TableRow><TableCell colSpan={6} align="center" sx={{ py: 8, color: 'text.secondary' }}>검토할 이관 리스크가 없습니다.</TableCell></TableRow> :
-              activeCases.map((reviewCase) => <TableRow key={reviewCase.id} hover>
-                <TableCell><Typography component={Link} to={`/risk-reviews/${reviewCase.id}`} sx={{ color: primary, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>{reviewCase.risk_code || '-'}</Typography></TableCell>
-                <TableCell><Typography component={Link} to={`/risk-reviews/${reviewCase.id}`} sx={{ color: 'text.primary', fontWeight: 600, textDecoration: 'none' }}>{reviewCase.title}</Typography><Typography color="text.secondary" fontSize={12} sx={{ mt: .5 }}>{reviewCase.statement}</Typography></TableCell>
+              activeCases.map((reviewCase) => <TableRow key={reviewCase.risk_code} hover>
+                <TableCell><Typography component={Link} to={`/risk-reviews/${encodeURIComponent(reviewCase.risk_code)}`} sx={{ color: primary, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>{reviewCase.risk_code || '-'}</Typography></TableCell>
+                <TableCell><Typography component={Link} to={`/risk-reviews/${encodeURIComponent(reviewCase.risk_code)}`} sx={{ color: 'text.primary', fontWeight: 600, textDecoration: 'none' }}>{reviewCase.title}</Typography><Typography color="text.secondary" fontSize={12} sx={{ mt: .5 }}>{reviewCase.statement}</Typography></TableCell>
                 <TableCell><DecisionChip value={reviewCase.review_decision} /></TableCell>
                 <TableCell><SeverityChip value={reviewCase.severity} /></TableCell>
                 <TableCell>{reviewCase.status}</TableCell>

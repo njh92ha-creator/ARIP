@@ -5,6 +5,10 @@ export const api = axios.create({
   timeout: 120000,
 })
 
+export const companyScope = (companyId: string) => ({
+  headers: { 'X-ARIP-Company-ID': companyId },
+})
+
 export interface Company {
   id: string
   company_code: string
@@ -19,6 +23,7 @@ export interface Company {
 
 export interface Risk {
   id: string
+  company_id: string
   risk_code?: string
   title: string
   statement: string
@@ -85,6 +90,17 @@ export interface RiskReviewCase {
   transferred_at: string
   answers: RiskReviewAnswer[]
   attachments: RiskReviewAttachment[]
+}
+
+export interface RiskReviewSummary {
+  company_id: string
+  risk_code: string
+  title: string
+  statement: string
+  review_decision: 'CHECK' | 'PENDING' | 'PASS'
+  severity: 'HIGH' | 'MEDIUM' | 'LOW'
+  status: string
+  transferred_at: string
 }
 
 export interface RiskReviewAnswer {
