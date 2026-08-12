@@ -64,6 +64,8 @@ def hydrate_legacy_object(obj: Any) -> None:
                 object.__setattr__(package, field_name, default)
     if isinstance(obj, RiskReviewCase):
         defaults = {
+            "exposure_amount": 0,
+            "exposure_basis": "",
             "materiality_level": "LOW",
             "closing_analysis_set_id": None,
             "cross_finding_ids": [],
@@ -962,6 +964,20 @@ class InMemoryRepository:
             review_case.severity = severity
             self.risk_review_cases[review_case_id] = review_case
             return review_case
+
+    def update_review_case_exposure(
+        self, review_case_id: UUID, exposure_amount: int, exposure_basis: str
+    ) -> RiskReviewCase:
+        if exposure_amount < 0:
+            raise ValueError("exposure amount must be zero or greater")
+        with self._lock:
+            self._ensure_review_persistence()
+            review_case = self.get_review_case(review_case_id)
+            if review_case is None:
+                raise KeyError(review_case_id)
+            review_case.exposure_amount = exposure_amount
+            review_case.exposure_basis = exposure_basis
+            return self.save(review_case)
 
     def attachments_for_review_case(self, review_case_id: UUID) -> list[RiskReviewAttachment]:
         with self._lock:

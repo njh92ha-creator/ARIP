@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Alert,
   Box,
@@ -274,6 +274,8 @@ export function RiskReviewDetailPage() {
   const { riskCode } = useParams()
   const queryClient = useQueryClient()
   const [controlError, setControlError] = useState<string | null>(null)
+  const [exposureAmount, setExposureAmount] = useState('')
+  const [exposureBasis, setExposureBasis] = useState('')
   const { data: companies, isLoading: isCompanyLoading, isError: isCompanyError } = useQuery({
     queryKey: ['companies'],
     queryFn: async () => (await api.get<Company[]>('/companies')).data,
@@ -335,12 +337,31 @@ export function RiskReviewDetailPage() {
     onSettled: () => void queryClient.invalidateQueries({ queryKey: ['risk-reviews'] }),
   })
   const controlsPending = decision.isPending || severity.isPending
+  const exposure = useMutation({
+    mutationFn: async () => {
+      if (!reviewCaseId) throw new Error('review case is not loaded')
+      return (await api.put<RiskReviewCase>(`/risk-reviews/${reviewCaseId}/exposure`, {
+        exposure_amount: Number(exposureAmount.replaceAll(',', '')) || 0,
+        exposure_basis: exposureBasis,
+      })).data
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData<RiskReviewCase>(['risk-review', riskCode], updated)
+      setExposureAmount(String(updated.exposure_amount || ''))
+      setExposureBasis(updated.exposure_basis || '')
+    },
+  })
 
   if (!riskCode) return <Alert severity="error">검토 케이스 경로가 올바르지 않습니다.</Alert>
   if (isCompanyError || isError) return <Alert severity="error">{errorMessage(error, '검토 케이스를 불러오지 못했습니다.')}</Alert>
   if (!isCompanyLoading && !company) return <Alert severity="info">등록된 회사가 없습니다.</Alert>
   if (!reviewCase) return <Box sx={{ py: 8, textAlign: 'center' }}><CircularProgress size={30} /></Box>
   if (!company) return <Box sx={{ py: 8, textAlign: 'center' }}><CircularProgress size={30} /></Box>
+
+  useEffect(() => {
+    setExposureAmount(reviewCase.exposure_amount ? String(reviewCase.exposure_amount) : '')
+    setExposureBasis(reviewCase.exposure_basis || '')
+  }, [reviewCase.id, reviewCase.exposure_amount, reviewCase.exposure_basis])
 
   const questions = [...new Set([...(reviewCase.package.expected_questions ?? []), ...reviewCase.answers.map((item) => item.question)])]
   const answersByQuestion = new Map(questions.map((question) => [question, reviewCase.answers.filter((item) => item.question === question)]))
@@ -384,6 +405,15 @@ export function RiskReviewDetailPage() {
     {controlError ? <Alert severity="error" sx={{ mb: 2 }}>{controlError}</Alert> : null}
     {reviewCase.review_decision === 'PASS' ? <Alert severity="success" sx={{ mb: 2 }}>Pass로 분류되어 검토 목록에서는 숨겨집니다. 이 상세 경로는 계속 사용할 수 있습니다.</Alert> : null}
     <Stack spacing={3}>
+      <Card sx={cardSx}><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
+        <SectionTitle>리스크 노출금액</SectionTitle>
+        <Stack spacing={1.5} sx={{ mt: 2 }}>
+          <TextField label="노출금액 (KRW)" type="number" value={exposureAmount} onChange={(event) => setExposureAmount(event.target.value)} inputProps={{ min: 0 }} />
+          <TextField label="산정 근거" multiline minRows={3} value={exposureBasis} onChange={(event) => setExposureBasis(event.target.value)} />
+          {exposure.isError ? <Alert severity="error">{errorMessage(exposure.error, '노출금액을 저장하지 못했습니다.')}</Alert> : null}
+          <Box><Button variant="contained" disabled={exposure.isPending} onClick={() => exposure.mutate()}>{exposure.isPending ? '저장 중' : '저장'}</Button></Box>
+        </Stack>
+      </CardContent></Card>
       <SnapshotCard reviewCase={reviewCase} />
       <Card sx={cardSx}><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
         <SectionTitle action={<Chip label={`${reviewCase.answers.filter((item) => item.answer.trim()).length} / ${questions.length}`} size="small" variant="outlined" />}>검토 질문 및 답변</SectionTitle>

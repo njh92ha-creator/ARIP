@@ -83,6 +83,11 @@ class RiskReviewCaseSeverity(BaseModel):
     severity: str
 
 
+class RiskReviewExposureUpdate(BaseModel):
+    exposure_amount: int = 0
+    exposure_basis: str = ""
+
+
 class RiskDelete(BaseModel):
     expected_version: int = 1
 

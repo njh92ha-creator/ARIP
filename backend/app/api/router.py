@@ -29,6 +29,7 @@ from app.api.schemas import (
     RiskReviewAnswerUpdate,
     RiskReviewQuestionStatusUpdate,
     RiskReviewCaseDecision,
+    RiskReviewExposureUpdate,
     RiskReviewCaseSeverity,
     RiskReviewDecision,
     RiskReviewTransfer,
@@ -1025,6 +1026,7 @@ def _review_case_summary(review_case: Any) -> dict[str, Any]:
         "statement": review_case.statement,
         "review_decision": review_case.review_decision,
         "severity": review_case.severity,
+        "exposure_amount": review_case.exposure_amount,
         "status": review_case.status,
         "transferred_at": encode(review_case.transferred_at),
     }
@@ -1173,6 +1175,22 @@ def set_risk_review_case_severity(
         raise HTTPException(422, "severity must be HIGH, MEDIUM, or LOW")
     _review_case(review_case_id)
     review_case = repository.update_review_case_severity(review_case_id, severity)
+    return _review_case_payload(review_case)
+
+
+@router.put("/risk-reviews/{review_case_id}/exposure")
+def set_risk_review_case_exposure(
+    review_case_id: UUID,
+    payload: RiskReviewExposureUpdate,
+    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+) -> Any:
+    _review_case(review_case_id)
+    try:
+        review_case = repository.update_review_case_exposure(
+            review_case_id, payload.exposure_amount, payload.exposure_basis
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     return _review_case_payload(review_case)
 
 

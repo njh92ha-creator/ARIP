@@ -88,6 +88,8 @@ export interface RiskReviewCase {
   package: Risk['package']
   review_decision: 'CHECK' | 'PENDING' | 'PASS'
   severity: 'HIGH' | 'MEDIUM' | 'LOW'
+  exposure_amount: number
+  exposure_basis: string
   materiality_level: string
   status: string
   transferred_at: string
@@ -103,6 +105,7 @@ export interface RiskReviewSummary {
   statement: string
   review_decision: 'CHECK' | 'PENDING' | 'PASS'
   severity: 'HIGH' | 'MEDIUM' | 'LOW'
+  exposure_amount: number
   status: string
   transferred_at: string
 }
