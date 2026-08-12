@@ -1045,14 +1045,12 @@ def list_risk_reviews(company_id: UUID) -> Any:
 
 @router.get("/settings/risk-management")
 def list_risk_management(company_id: UUID) -> Any:
-    """Administrative view of source analyses which remain eligible for management."""
+    """Administrative view of every source analysis, including PASS and transferred risks."""
     return encode(
         [
             _risk_review_payload(risk)
             for risk in repository.risks.values()
             if risk.company_id == company_id
-            and is_visible_in_risk_lists(repository.risk_memory.get(risk.id, []))
-            and not repository.is_risk_transferred(risk.id)
         ]
     )
 
