@@ -271,7 +271,7 @@ class RiskReviewAnswer:
     review_case_id: UUID
     question: str
     answer: str
-    created_at: datetime = field(default_factory=utcnow)
+    updated_at: datetime = field(default_factory=utcnow)
     id: UUID = field(default_factory=uuid4)
 
 

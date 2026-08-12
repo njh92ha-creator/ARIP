@@ -72,8 +72,6 @@ def hydrate_legacy_object(obj: Any) -> None:
         for field_name, default in defaults.items():
             if not hasattr(obj, field_name):
                 object.__setattr__(obj, field_name, default)
-    if isinstance(obj, RiskReviewAnswer) and not hasattr(obj, "created_at"):
-        object.__setattr__(obj, "created_at", obj.updated_at)
 
 T = TypeVar("T")
 
@@ -841,7 +839,7 @@ class InMemoryRepository:
                 for answer in self.risk_review_answers.values()
                 if answer.review_case_id == review_case_id
             ]
-            return sorted(answers, key=lambda answer: answer.created_at)
+            return sorted(answers, key=lambda answer: answer.updated_at)
 
     def add_review_answer(
         self, review_case_id: UUID, *, question: str, answer: str

@@ -142,7 +142,7 @@ function AnswerEditor({ reviewCaseId, cacheKey, question, savedAnswers, question
           <Box sx={{ whiteSpace: 'pre-wrap', flex: 1 }}>{saved.answer}</Box>
           <IconButton aria-label="답변 삭제" color="error" size="small" disabled={remove.isPending} onClick={() => remove.mutate(saved.id)}><DeleteOutlineRoundedIcon fontSize="small" /></IconButton>
         </Stack>
-        <Typography color="text.secondary" variant="caption" sx={{ display: 'block', mt: .75 }}>기록 일자: {formatDate(saved.created_at)}</Typography>
+        <Typography color="text.secondary" variant="caption" sx={{ display: 'block', mt: .75 }}>기록 일자: {formatDate(saved.updated_at)}</Typography>
       </Box>)}
     </Stack>
   </Box>
