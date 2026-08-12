@@ -1180,9 +1180,9 @@ def set_risk_review_case_severity(
 def add_risk_review_attachment(
     review_case_id: UUID,
     file: UploadFile = File(...),
-    user: CurrentUser = Depends(require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
-    _review_case_for_user(review_case_id, user)
+    _review_case(review_case_id)
     attachment = RiskReviewAttachment(
         review_case_id=review_case_id,
         filename=file.filename or "attachment",
@@ -1208,9 +1208,9 @@ def add_risk_review_attachment(
 def download_risk_review_attachment(
     review_case_id: UUID,
     attachment_id: UUID,
-    user: CurrentUser = Depends(require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Response:
-    _review_case_for_user(review_case_id, user)
+    _review_case(review_case_id)
     attachment = next(
         (
             item
@@ -1236,9 +1236,9 @@ def download_risk_review_attachment(
 def delete_risk_review_attachment(
     review_case_id: UUID,
     attachment_id: UUID,
-    user: CurrentUser = Depends(require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
-    _review_case_for_user(review_case_id, user)
+    _review_case(review_case_id)
     try:
         repository.remove_review_attachment(review_case_id, attachment_id)
     except KeyError as exc:
