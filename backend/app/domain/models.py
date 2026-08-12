@@ -233,6 +233,18 @@ class Risk:
 
 
 @dataclass(slots=True)
+class RiskSemanticEmbedding:
+    """Private semantic comparison data for automatic PASS decisions."""
+
+    risk_id: UUID
+    company_id: UUID
+    content_hash: str
+    embedding_model: str
+    embedding: list[float]
+    id: UUID = field(default_factory=uuid4)
+
+
+@dataclass(slots=True)
 class RiskMemoryEntry:
     risk_id: UUID
     entry_type: str

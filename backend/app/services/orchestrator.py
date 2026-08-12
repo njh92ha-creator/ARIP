@@ -13,6 +13,7 @@ from app.services.ai_risk_analysis import (
     risk_from_ai_analysis,
 )
 from app.services.event_engine import cluster_journals, construct_event
+from app.services.risk_auto_pass import maybe_auto_pass_risk
 
 
 logger = logging.getLogger(__name__)
@@ -215,6 +216,19 @@ def process_journals(
             risk.cross_finding_ids = []
             risk.package.cross_finding_ids = []
             repo.save(risk)
+            # This auxiliary path can only set PASS after amount-free semantic
+            # comparison against 10 prior human-classified cases.  It never assigns
+            # CHECK/PENDING and never blocks the newly created analysis result.
+            maybe_auto_pass_risk(
+                repo,
+                risk,
+                cluster,
+                ai_provider=ai_provider,
+                ai_model=ai_model,
+                ai_key_env=ai_key_env,
+                embedding_model=embedding_model,
+                actor=actor,
+            )
             repo.append_memory(
                 RiskMemoryEntry(
                     risk_id=risk.id,

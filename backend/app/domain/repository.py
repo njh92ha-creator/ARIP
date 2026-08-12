@@ -24,6 +24,7 @@ from .models import (
     MaterialityProfile,
     Risk,
     RiskPackage,
+    RiskSemanticEmbedding,
     RiskReviewAnswer,
     RiskReviewAttachment,
     RiskReviewCase,
@@ -146,6 +147,7 @@ class InMemoryRepository:
         self.events: dict[UUID, AccountingEvent] = {}
         self.analysis_event_results: dict[UUID, AnalysisEventResult] = {}
         self.risks: dict[UUID, Risk] = {}
+        self.risk_semantic_embeddings: dict[UUID, RiskSemanticEmbedding] = {}
         self.risk_review_cases: dict[UUID, RiskReviewCase] = {}
         self.risk_review_answers: dict[UUID, RiskReviewAnswer] = {}
         self.risk_review_question_statuses: dict[UUID, RiskReviewQuestionStatus] = {}
@@ -233,6 +235,7 @@ class InMemoryRepository:
                         "AccountingEvent": "events",
                         "AnalysisEventResult": "analysis_event_results",
                         "Risk": "risks",
+                        "RiskSemanticEmbedding": "risk_semantic_embeddings",
                         "RiskReviewCase": "risk_review_cases",
                         "RiskReviewAnswer": "risk_review_answers",
                         "RiskReviewQuestionStatus": "risk_review_question_statuses",
@@ -337,6 +340,7 @@ class InMemoryRepository:
                 AccountingEvent: self.events,
                 AnalysisEventResult: self.analysis_event_results,
                 Risk: self.risks,
+                RiskSemanticEmbedding: self.risk_semantic_embeddings,
                 RiskReviewCase: self.risk_review_cases,
                 RiskReviewAnswer: self.risk_review_answers,
                 RiskReviewQuestionStatus: self.risk_review_question_statuses,
