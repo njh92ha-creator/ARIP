@@ -7,7 +7,7 @@ const cardSx = { border: '1px solid #E5E7EB', borderRadius: '12px', bgcolor: '#F
 const severityColor = { HIGH: 'error', MEDIUM: 'warning', LOW: 'success' } as const
 const ring = 100.53
 
-function formatAmount(value: number) { return `${new Intl.NumberFormat('ko-KR').format(value)}원` }
+function formatAmount(value: number) { return `${new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 2 }).format(value / 1_000_000)}백만원` }
 function formatDate(value: string) {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? '-' : new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(date)
