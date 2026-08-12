@@ -264,6 +264,36 @@ class InMemoryRepository:
             self._db_ready = False
             self.last_db_error = type(exc).__name__
 
+    def reload_from_database(self) -> None:
+        """Replace this instance's cached state with the current database state."""
+        with self._lock:
+            self.companies.clear()
+            self.materiality_profiles.clear()
+            self.variance_profiles.clear()
+            self.mapping_profiles.clear()
+            self.journal_lines.clear()
+            self.closing_analysis_sets.clear()
+            self.settlement_balances.clear()
+            self.cross_analysis_findings.clear()
+            self.events.clear()
+            self.analysis_event_results.clear()
+            self.risks.clear()
+            self.risk_semantic_embeddings.clear()
+            self.risk_review_cases.clear()
+            self.risk_review_answers.clear()
+            self.risk_review_question_statuses.clear()
+            self.risk_review_attachments.clear()
+            self.risk_memory.clear()
+            self.variance_observations.clear()
+            self.audit_log.clear()
+            self.runtime_settings.clear()
+            self.processed_source_hashes.clear()
+            self.event_hash_index.clear()
+            self._db_ready = False
+            self.last_db_error = None
+            self._initialize_database()
+            self._restore()
+
     def _persist(self, collection: str, obj: Any, *, append_only: bool = False) -> None:
         if not self._db_ready:
             return

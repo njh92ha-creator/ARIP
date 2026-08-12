@@ -263,6 +263,16 @@ def demo_login(user: CurrentUser = Depends(current_user)) -> Any:
     }
 
 
+@router.post("/runtime/reload-from-database")
+def reload_runtime_from_database() -> dict[str, Any]:
+    """Manually synchronize this backend instance with the current DB state."""
+    repository.reload_from_database()
+    if not repository._db_ready:
+        raise HTTPException(503, "database reload failed")
+    _load_runtime_settings()
+    return {"status": "COMPLETED", "snapshot": repository.snapshot()}
+
+
 @router.get("/auth/me")
 def get_me(user: CurrentUser = Depends(current_user)) -> Any:
     return {

@@ -6,6 +6,8 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  Button,
+  CircularProgress,
   Toolbar,
   Typography,
 } from '@mui/material'
@@ -17,8 +19,11 @@ import {
   Gavel,
   Settings,
   UploadFile,
+  Refresh,
 } from '@mui/icons-material'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '../api'
 import { PMonogram } from '../components/PMonogram'
 
 const drawerWidth = 216
@@ -33,6 +38,11 @@ const nav = [
 
 export function AppShell() {
   const location = useLocation()
+  const queryClient = useQueryClient()
+  const reloadDatabase = useMutation({
+    mutationFn: async () => (await api.post('/runtime/reload-from-database')).data,
+    onSuccess: async () => { await queryClient.invalidateQueries() },
+  })
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
       <Drawer
@@ -57,6 +67,19 @@ export function AppShell() {
             </ListItemButton>
           ))}
         </List>
+        <Box sx={{ mt: 'auto', pt: 2 }}>
+          <Button
+            fullWidth
+            size="small"
+            variant="outlined"
+            startIcon={reloadDatabase.isPending ? <CircularProgress size={15} /> : <Refresh />}
+            disabled={reloadDatabase.isPending}
+            onClick={() => reloadDatabase.mutate()}
+            sx={{ textTransform: 'none', whiteSpace: 'nowrap' }}
+          >
+            DB 최신 상태 불러오기
+          </Button>
+        </Box>
       </Drawer>
       <Box component="main" sx={{ flexGrow: 1, ml: `${drawerWidth}px`, bgcolor: 'background.default' }}>
         <AppBar
