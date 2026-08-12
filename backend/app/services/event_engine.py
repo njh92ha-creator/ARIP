@@ -67,7 +67,9 @@ def cluster_journals(lines: Iterable[JournalLine]) -> list[list[JournalLine]]:
     return list(clusters.values())
 
 
-def construct_event(lines: list[JournalLine], currency: str = "KRW") -> AccountingEvent:
+def construct_event(
+    lines: list[JournalLine], currency: str = "KRW", *, analysis_set_id: str = ""
+) -> AccountingEvent:
     if not lines:
         raise ValueError("at least one journal line is required")
     event_type, confidence = infer_event_type(lines)
@@ -92,6 +94,10 @@ def construct_event(lines: list[JournalLine], currency: str = "KRW") -> Accounti
         "currency": currency,
         "projectPresent": any(line.project_code for line in lines),
         "contractPresent": any(line.contract_code for line in lines),
+        # A current upload is its own analysis scope.  The same voucher in a
+        # prior upload must never be reused as this upload's event.
+        "analysisSetId": analysis_set_id,
+        "documentNumber": lines[0].document_number,
         "tokens": _text_tokens(lines),
     }
     canonical = json.dumps(

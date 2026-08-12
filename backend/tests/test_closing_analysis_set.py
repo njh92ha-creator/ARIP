@@ -164,14 +164,14 @@ class ClosingAnalysisSetTest(unittest.TestCase):
         self.assertEqual(result["qualifiedAccounts"], 1)
         self.assertEqual(result["events"], 0)
         self.assertEqual(provider.calls, 0)
-    def test_analysis_set_is_scoped_only_to_company(self) -> None:
+    def test_each_upload_analysis_starts_with_a_new_isolated_set(self) -> None:
         repo = InMemoryRepository(persistent=False)
         company = repo.save(CompanySettings("P001", "Test Company", "Manufacturing"))
 
         first = create_closing_analysis_set(repo, company.id)
         second = create_closing_analysis_set(repo, company.id)
 
-        self.assertEqual(first.id, second.id)
+        self.assertNotEqual(first.id, second.id)
         self.assertEqual(first.fiscal_year, 0)
         self.assertEqual(first.fiscal_period, 0)
 

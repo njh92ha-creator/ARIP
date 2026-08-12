@@ -79,7 +79,16 @@ def process_journals(
     skipped_by_materiality = 0
     processed_event_ids: list[str] = []
     clusters = cluster_journals(lines)
-    candidates = [(cluster, construct_event(cluster)) for cluster in clusters]
+    candidates = [
+        (
+            cluster,
+            construct_event(
+                cluster,
+                analysis_set_id=str(cluster[0].closing_analysis_set_id or ""),
+            ),
+        )
+        for cluster in clusters
+    ]
     same_type_voucher_counts = {
         event_type: sum(1 for _, candidate in candidates if candidate.event_type == event_type)
         for event_type in {candidate.event_type for _, candidate in candidates}
