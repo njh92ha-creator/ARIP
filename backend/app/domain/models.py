@@ -271,7 +271,16 @@ class RiskReviewAnswer:
     review_case_id: UUID
     question: str
     answer: str
-    updated_at: datetime = field(default_factory=utcnow)
+    created_at: datetime = field(default_factory=utcnow)
+    id: UUID = field(default_factory=uuid4)
+
+
+@dataclass(slots=True)
+class RiskReviewQuestionStatus:
+    review_case_id: UUID
+    question: str
+    status: str
+    created_at: datetime = field(default_factory=utcnow)
     id: UUID = field(default_factory=uuid4)
 
 

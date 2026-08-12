@@ -73,30 +73,53 @@ function ReadOnlyList({ items, emptyText }: { items?: string[]; emptyText: strin
   return <Stack component="ul" spacing={1} sx={{ pl: 2.5, mb: 0 }}>{items.map((item) => <Typography component="li" key={item} variant="body2" sx={{ lineHeight: 1.7 }}>{item}</Typography>)}</Stack>
 }
 
-function AnswerEditor({ reviewCaseId, cacheKey, question, savedAnswer }: { reviewCaseId: string; cacheKey: string; question: string; savedAnswer?: RiskReviewAnswer }) {
+function AnswerEditor({ reviewCaseId, cacheKey, question, savedAnswers, questionStatus }: { reviewCaseId: string; cacheKey: string; question: string; savedAnswers: RiskReviewAnswer[]; questionStatus?: 'NOT_REQUIRED' | 'DUPLICATE' }) {
   const queryClient = useQueryClient()
-  const [answer, setAnswer] = useState(savedAnswer?.answer ?? '')
+  const [answer, setAnswer] = useState('')
   const mutation = useMutation({
     mutationFn: async (submittedAnswer: string) => (await api.put<RiskReviewAnswer>(
       `/risk-reviews/${reviewCaseId}/answers`,
       { question, answer: submittedAnswer },
     )).data,
     onSuccess: (saved) => {
+      setAnswer('')
       queryClient.setQueryData<RiskReviewCase>(['risk-review', cacheKey], (current) => current ? {
         ...current,
-        answers: [...current.answers.filter((item) => item.question !== question), saved],
+        answers: [...current.answers, saved],
       } : current)
     },
   })
 
+  const remove = useMutation({
+    mutationFn: async (answerId: string) => api.delete(`/risk-reviews/${reviewCaseId}/answers/${answerId}`),
+    onSuccess: (_, answerId) => queryClient.setQueryData<RiskReviewCase>(['risk-review', cacheKey], (current) => current ? {
+      ...current,
+      answers: current.answers.filter((item) => item.id !== answerId),
+    } : current),
+  })
+  const status = useMutation({
+    mutationFn: async (value: 'NOT_REQUIRED' | 'DUPLICATE') => (await api.put(
+      `/risk-reviews/${reviewCaseId}/question-status`, { question, status: value },
+    )).data,
+    onSuccess: (saved) => queryClient.setQueryData<RiskReviewCase>(['risk-review', cacheKey], (current) => current ? {
+      ...current,
+      question_statuses: [...current.question_statuses.filter((item) => item.question !== question), saved],
+    } : current),
+  })
+  const closed = Boolean(questionStatus)
+
   return <Box sx={{ p: 2, border: `1px solid ${border}`, borderRadius: 2, bgcolor: '#FCFCFD' }}>
-    <Typography fontWeight={700} sx={{ mb: 1.25 }}>{question}</Typography>
+    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.25 }}>
+      <Typography fontWeight={700}>{question}</Typography>
+      {questionStatus ? <Chip size="small" color={questionStatus === 'NOT_REQUIRED' ? 'default' : 'warning'} label={questionStatus === 'NOT_REQUIRED' ? '중요하지 않음' : '중복'} /> : null}
+    </Stack>
     <TextField
       fullWidth
       multiline
       minRows={3}
       value={answer}
       onChange={(event) => setAnswer(event.target.value)}
+      disabled={closed}
       placeholder="검토 답변을 입력해 주세요."
       aria-label={`${question} 답변`}
     />
@@ -105,9 +128,22 @@ function AnswerEditor({ reviewCaseId, cacheKey, question, savedAnswer }: { revie
         {mutation.isError ? <Typography color="error" variant="caption">{errorMessage(mutation.error, '답변을 저장하지 못했습니다.')}</Typography> : null}
         {mutation.isSuccess && answer === mutation.variables ? <Typography color="success.main" variant="caption">저장됨 · {formatDate(mutation.data.updated_at)}</Typography> : null}
       </Box>
-      <Button variant="contained" size="small" startIcon={<SaveOutlinedIcon />} disabled={mutation.isPending} onClick={() => mutation.mutate(answer)}>
+      <Stack direction="row" spacing={1}>
+      <Button size="small" variant="outlined" disabled={status.isPending || closed} onClick={() => status.mutate('NOT_REQUIRED')}>중요하지 않음</Button>
+      <Button size="small" variant="outlined" disabled={status.isPending || closed} onClick={() => status.mutate('DUPLICATE')}>중복</Button>
+      <Button variant="contained" size="small" startIcon={<SaveOutlinedIcon />} disabled={mutation.isPending || closed || !answer.trim()} onClick={() => mutation.mutate(answer)}>
         {mutation.isPending ? '저장 중' : '답변 저장'}
       </Button>
+    </Stack>
+    </Stack>
+    <Stack spacing={1} sx={{ mt: 1.5 }}>
+      {savedAnswers.map((saved) => <Box key={saved.id} sx={{ p: 1.5, bgcolor: '#FFFBE6', border: '1px solid #FDE68A', borderRadius: 1.5 }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+          <Box sx={{ whiteSpace: 'pre-wrap', flex: 1 }}>{saved.answer}</Box>
+          <IconButton aria-label="답변 삭제" color="error" size="small" disabled={remove.isPending} onClick={() => remove.mutate(saved.id)}><DeleteOutlineRoundedIcon fontSize="small" /></IconButton>
+        </Stack>
+        <Typography color="text.secondary" variant="caption" sx={{ display: 'block', mt: .75 }}>기록 일자: {formatDate(saved.created_at)}</Typography>
+      </Box>)}
     </Stack>
   </Box>
 }
@@ -307,7 +343,8 @@ export function RiskReviewDetailPage() {
   if (!company) return <Box sx={{ py: 8, textAlign: 'center' }}><CircularProgress size={30} /></Box>
 
   const questions = [...new Set([...(reviewCase.package.expected_questions ?? []), ...reviewCase.answers.map((item) => item.question)])]
-  const answerByQuestion = new Map(reviewCase.answers.map((item) => [item.question, item]))
+  const answersByQuestion = new Map(questions.map((question) => [question, reviewCase.answers.filter((item) => item.question === question)]))
+  const statusByQuestion = new Map(reviewCase.question_statuses.map((item) => [item.question, item.status]))
 
   return <Box>
     <Typography component={Link} to="/events" variant="body2" sx={{ color: primary, textDecoration: 'none', fontWeight: 700 }}>← 검토 목록</Typography>
@@ -352,7 +389,7 @@ export function RiskReviewDetailPage() {
         <SectionTitle action={<Chip label={`${reviewCase.answers.filter((item) => item.answer.trim()).length} / ${questions.length}`} size="small" variant="outlined" />}>검토 질문 및 답변</SectionTitle>
         <Typography color="text.secondary" variant="body2" sx={{ mt: 1.5 }}>각 질문의 답변은 개별적으로 저장됩니다.</Typography>
         <Stack spacing={1.5} sx={{ mt: 2 }}>
-          {questions.length ? questions.map((question) => <AnswerEditor key={question} reviewCaseId={reviewCase.id} cacheKey={riskCode} question={question} savedAnswer={answerByQuestion.get(question)} />) : <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>이관된 검토 질문이 없습니다.</Typography>}
+          {questions.length ? questions.map((question) => <AnswerEditor key={question} reviewCaseId={reviewCase.id} cacheKey={riskCode} question={question} savedAnswers={answersByQuestion.get(question) ?? []} questionStatus={statusByQuestion.get(question)} />) : <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>이관된 검토 질문이 없습니다.</Typography>}
         </Stack>
       </CardContent></Card>
       <AttachmentCard reviewCase={reviewCase} cacheKey={riskCode} />

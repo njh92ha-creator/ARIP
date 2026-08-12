@@ -27,6 +27,7 @@ from .models import (
     RiskReviewAnswer,
     RiskReviewAttachment,
     RiskReviewCase,
+    RiskReviewQuestionStatus,
     RiskMemoryEntry,
     SettlementBalance,
     VarianceObservation,
@@ -71,7 +72,8 @@ def hydrate_legacy_object(obj: Any) -> None:
         for field_name, default in defaults.items():
             if not hasattr(obj, field_name):
                 object.__setattr__(obj, field_name, default)
-        hydrate_legacy_object(obj.package)
+    if isinstance(obj, RiskReviewAnswer) and not hasattr(obj, "created_at"):
+        object.__setattr__(obj, "created_at", obj.updated_at)
 
 T = TypeVar("T")
 
@@ -146,6 +148,7 @@ class InMemoryRepository:
         self.risks: dict[UUID, Risk] = {}
         self.risk_review_cases: dict[UUID, RiskReviewCase] = {}
         self.risk_review_answers: dict[UUID, RiskReviewAnswer] = {}
+        self.risk_review_question_statuses: dict[UUID, RiskReviewQuestionStatus] = {}
         self.risk_review_attachments: dict[UUID, RiskReviewAttachment] = {}
         self.risk_memory: dict[UUID, list[RiskMemoryEntry]] = defaultdict(list)
         self.variance_observations: dict[UUID, VarianceObservation] = {}
@@ -232,6 +235,7 @@ class InMemoryRepository:
                         "Risk": "risks",
                         "RiskReviewCase": "risk_review_cases",
                         "RiskReviewAnswer": "risk_review_answers",
+                        "RiskReviewQuestionStatus": "risk_review_question_statuses",
                         "RiskReviewAttachment": "risk_review_attachments",
                         "VarianceObservation": "variance_observations",
                     }.get(collection)
@@ -335,6 +339,7 @@ class InMemoryRepository:
                 Risk: self.risks,
                 RiskReviewCase: self.risk_review_cases,
                 RiskReviewAnswer: self.risk_review_answers,
+                RiskReviewQuestionStatus: self.risk_review_question_statuses,
                 RiskReviewAttachment: self.risk_review_attachments,
                 VarianceObservation: self.variance_observations,
             }
@@ -836,16 +841,65 @@ class InMemoryRepository:
                 for answer in self.risk_review_answers.values()
                 if answer.review_case_id == review_case_id
             ]
-            by_question: dict[str, RiskReviewAnswer] = {}
-            for answer in answers:
-                current = by_question.get(answer.question)
-                if current is None or answer.updated_at >= current.updated_at:
-                    by_question[answer.question] = answer
-            return list(by_question.values())
+            return sorted(answers, key=lambda answer: answer.created_at)
 
-    def upsert_review_answer(
+    def add_review_answer(
         self, review_case_id: UUID, *, question: str, answer: str
     ) -> RiskReviewAnswer:
+        with self._lock:
+            self._ensure_review_persistence()
+            if self.get_review_case(review_case_id) is None:
+                raise KeyError(review_case_id)
+            entry = RiskReviewAnswer(
+                review_case_id=review_case_id,
+                question=question,
+                answer=answer,
+            )
+            if self._db_ready:
+                with engine.begin() as connection:
+                    _upsert_state(
+                        connection,
+                        "RiskReviewAnswer",
+                        str(entry.id),
+                        entry,
+                    )
+                self.risk_review_answers[entry.id] = entry
+                return entry
+            return self.save(entry)
+
+    def remove_review_answer(
+        self, review_case_id: UUID, answer_id: UUID
+    ) -> RiskReviewAnswer:
+        with self._lock:
+            self._ensure_review_persistence()
+            answer = self.risk_review_answers.get(answer_id)
+            if answer is None or answer.review_case_id != review_case_id:
+                raise KeyError(answer_id)
+            self.risk_review_answers.pop(answer_id)
+            if self._db_ready:
+                with engine.begin() as connection:
+                    connection.execute(
+                        text("delete from arip_state where collection = :collection and object_id = :object_id"),
+                        {"collection": "RiskReviewAnswer", "object_id": str(answer_id)},
+                    )
+            return answer
+
+    def question_statuses_for_review_case(
+        self, review_case_id: UUID
+    ) -> list[RiskReviewQuestionStatus]:
+        with self._lock:
+            statuses = [
+                item
+                for item in self.risk_review_question_statuses.values()
+                if item.review_case_id == review_case_id
+            ]
+            return sorted(statuses, key=lambda item: item.created_at)
+
+    def set_review_question_status(
+        self, review_case_id: UUID, *, question: str, status: str
+    ) -> RiskReviewQuestionStatus:
+        if status not in {"NOT_REQUIRED", "DUPLICATE"}:
+            raise ValueError("status must be NOT_REQUIRED or DUPLICATE")
         with self._lock:
             self._ensure_review_persistence()
             if self.get_review_case(review_case_id) is None:
@@ -853,34 +907,18 @@ class InMemoryRepository:
             existing = next(
                 (
                     item
-                    for item in self.answers_for_review_case(review_case_id)
+                    for item in self.question_statuses_for_review_case(review_case_id)
                     if item.question == question
                 ),
                 None,
             )
             if existing is None:
-                existing = RiskReviewAnswer(
-                    review_case_id=review_case_id,
-                    question=question,
-                    answer=answer,
-                    id=uuid5(
-                        NAMESPACE_URL,
-                        f"arip:review-answer:{review_case_id}:{question}",
-                    ),
+                existing = RiskReviewQuestionStatus(
+                    review_case_id=review_case_id, question=question, status=status
                 )
             else:
-                existing.answer = answer
-                existing.updated_at = utcnow()
-            if self._db_ready:
-                with engine.begin() as connection:
-                    _upsert_state(
-                        connection,
-                        "RiskReviewAnswer",
-                        str(existing.id),
-                        existing,
-                    )
-                self.risk_review_answers[existing.id] = existing
-                return existing
+                existing.status = status
+                existing.created_at = utcnow()
             return self.save(existing)
 
     def update_review_case_decision(
@@ -1070,6 +1108,7 @@ class InMemoryRepository:
                             removed_review_case_ids.add(object_id)
             for collection, store in (
                 ("RiskReviewAnswer", self.risk_review_answers),
+                ("RiskReviewQuestionStatus", self.risk_review_question_statuses),
                 ("RiskReviewAttachment", self.risk_review_attachments),
             ):
                 for object_id, item in list(store.items()):

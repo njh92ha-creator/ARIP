@@ -92,6 +92,7 @@ export interface RiskReviewCase {
   status: string
   transferred_at: string
   answers: RiskReviewAnswer[]
+  question_statuses: RiskReviewQuestionStatus[]
   attachments: RiskReviewAttachment[]
 }
 
@@ -110,7 +111,15 @@ export interface RiskReviewAnswer {
   id: string
   question: string
   answer: string
-  updated_at: string
+  created_at: string
+  updated_at?: string
+}
+
+export interface RiskReviewQuestionStatus {
+  id: string
+  question: string
+  status: 'NOT_REQUIRED' | 'DUPLICATE'
+  created_at: string
 }
 
 export interface RiskReviewAttachment {

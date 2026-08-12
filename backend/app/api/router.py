@@ -27,6 +27,7 @@ from app.api.schemas import (
     MaterialityCreate,
     RiskDelete,
     RiskReviewAnswerUpdate,
+    RiskReviewQuestionStatusUpdate,
     RiskReviewCaseDecision,
     RiskReviewCaseSeverity,
     RiskReviewDecision,
@@ -1058,6 +1059,9 @@ def _review_case_payload(review_case: Any) -> dict[str, Any]:
     payload = encode(review_case)
     payload.pop("source_risk_id", None)
     payload["answers"] = encode(repository.answers_for_review_case(review_case.id))
+    payload["question_statuses"] = encode(
+        repository.question_statuses_for_review_case(review_case.id)
+    )
     payload["attachments"] = [
         {
             "id": str(attachment.id),
@@ -1107,10 +1111,41 @@ def save_risk_review_answer(
 ) -> Any:
     _review_case(review_case_id)
     return encode(
-        repository.upsert_review_answer(
+        repository.add_review_answer(
             review_case_id, question=payload.question, answer=payload.answer
         )
     )
+
+
+@router.delete("/risk-reviews/{review_case_id}/answers/{answer_id}")
+def delete_risk_review_answer(
+    review_case_id: UUID,
+    answer_id: UUID,
+    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+) -> Any:
+    _review_case(review_case_id)
+    try:
+        repository.remove_review_answer(review_case_id, answer_id)
+    except KeyError as exc:
+        raise HTTPException(404, "review answer not found") from exc
+    return {"deleted": True}
+
+
+@router.put("/risk-reviews/{review_case_id}/question-status")
+def set_risk_review_question_status(
+    review_case_id: UUID,
+    payload: RiskReviewQuestionStatusUpdate,
+    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+) -> Any:
+    _review_case(review_case_id)
+    try:
+        return encode(
+            repository.set_review_question_status(
+                review_case_id, question=payload.question, status=payload.status.upper()
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.post("/risk-reviews/{review_case_id}/review-decision")

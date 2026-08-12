@@ -70,6 +70,11 @@ class RiskReviewAnswerUpdate(BaseModel):
     answer: str
 
 
+class RiskReviewQuestionStatusUpdate(BaseModel):
+    question: str
+    status: str
+
+
 class RiskReviewCaseDecision(BaseModel):
     decision: str
 
