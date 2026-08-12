@@ -1103,9 +1103,9 @@ def get_risk_review_case(
 def save_risk_review_answer(
     review_case_id: UUID,
     payload: RiskReviewAnswerUpdate,
-    user: CurrentUser = Depends(require_review_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
+    user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
-    _review_case_for_user(review_case_id, user)
+    _review_case(review_case_id)
     return encode(
         repository.upsert_review_answer(
             review_case_id, question=payload.question, answer=payload.answer
