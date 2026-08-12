@@ -336,6 +336,11 @@ export function RiskReviewDetailPage() {
     onSuccess: (updated) => queryClient.setQueryData<RiskReviewCase>(['risk-review', riskCode], (current) => current ? { ...current, severity: updated.severity } : updated),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: ['risk-reviews'] }),
   })
+  useEffect(() => {
+    if (!reviewCase) return
+    setExposureAmount(reviewCase.exposure_amount ? String(reviewCase.exposure_amount) : '')
+    setExposureBasis(reviewCase.exposure_basis || '')
+  }, [reviewCase?.id, reviewCase?.exposure_amount, reviewCase?.exposure_basis])
   const controlsPending = decision.isPending || severity.isPending
   const exposure = useMutation({
     mutationFn: async () => {
@@ -357,11 +362,6 @@ export function RiskReviewDetailPage() {
   if (!isCompanyLoading && !company) return <Alert severity="info">등록된 회사가 없습니다.</Alert>
   if (!reviewCase) return <Box sx={{ py: 8, textAlign: 'center' }}><CircularProgress size={30} /></Box>
   if (!company) return <Box sx={{ py: 8, textAlign: 'center' }}><CircularProgress size={30} /></Box>
-
-  useEffect(() => {
-    setExposureAmount(reviewCase.exposure_amount ? String(reviewCase.exposure_amount) : '')
-    setExposureBasis(reviewCase.exposure_basis || '')
-  }, [reviewCase.id, reviewCase.exposure_amount, reviewCase.exposure_basis])
 
   const questions = [...new Set([...(reviewCase.package.expected_questions ?? []), ...reviewCase.answers.map((item) => item.question)])]
   const answersByQuestion = new Map(questions.map((question) => [question, reviewCase.answers.filter((item) => item.question === question)]))
