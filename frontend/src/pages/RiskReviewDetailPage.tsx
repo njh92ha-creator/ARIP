@@ -7,6 +7,10 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   FormControl,
   IconButton,
@@ -276,6 +280,7 @@ export function RiskReviewDetailPage() {
   const [controlError, setControlError] = useState<string | null>(null)
   const [exposureAmount, setExposureAmount] = useState('')
   const [exposureBasis, setExposureBasis] = useState('')
+  const [exposureOpen, setExposureOpen] = useState(false)
   const { data: companies, isLoading: isCompanyLoading, isError: isCompanyError } = useQuery({
     queryKey: ['companies'],
     queryFn: async () => (await api.get<Company[]>('/companies')).data,
@@ -354,6 +359,7 @@ export function RiskReviewDetailPage() {
       queryClient.setQueryData<RiskReviewCase>(['risk-review', riskCode], updated)
       setExposureAmount(String(updated.exposure_amount || ''))
       setExposureBasis(updated.exposure_basis || '')
+      setExposureOpen(false)
     },
   })
 
@@ -404,8 +410,10 @@ export function RiskReviewDetailPage() {
     </Stack>
     {controlError ? <Alert severity="error" sx={{ mb: 2 }}>{controlError}</Alert> : null}
     {reviewCase.review_decision === 'PASS' ? <Alert severity="success" sx={{ mb: 2 }}>Pass로 분류되어 검토 목록에서는 숨겨집니다. 이 상세 경로는 계속 사용할 수 있습니다.</Alert> : null}
+    <Card sx={cardSx}><CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}><Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}><Box><Typography fontWeight={700}>노출금액</Typography><Typography color="text.secondary" variant="body2">{reviewCase.exposure_amount ? `${new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 2 }).format(reviewCase.exposure_amount / 1_000_000)}백만원` : '노출금액 미입력'} · {reviewCase.exposure_basis ? '근거 있음' : '근거 미입력'}</Typography></Box><Button size="small" variant="outlined" onClick={() => setExposureOpen(true)}>입력·수정</Button></Stack></CardContent></Card>
+    <Dialog open={exposureOpen} onClose={() => setExposureOpen(false)} fullWidth maxWidth="sm"><DialogTitle>리스크 노출금액</DialogTitle><DialogContent><Stack spacing={2} sx={{ pt: 1 }}><TextField label="노출금액 (KRW)" type="number" value={exposureAmount} onChange={(event) => setExposureAmount(event.target.value)} inputProps={{ min: 0 }} /><TextField label="산정 근거" multiline minRows={4} value={exposureBasis} onChange={(event) => setExposureBasis(event.target.value)} />{exposure.isError ? <Alert severity="error">노출금액을 저장하지 못했습니다.</Alert> : null}</Stack></DialogContent><DialogActions><Button onClick={() => setExposureOpen(false)}>닫기</Button><Button variant="contained" disabled={exposure.isPending} onClick={() => exposure.mutate()}>{exposure.isPending ? '저장 중' : '저장'}</Button></DialogActions></Dialog>
     <Stack spacing={3}>
-      <Card sx={cardSx}><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
+      <Card sx={{ ...cardSx, display: 'none' }}><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
         <SectionTitle>리스크 노출금액</SectionTitle>
         <Stack spacing={1.5} sx={{ mt: 2 }}>
           <TextField label="노출금액 (KRW)" type="number" value={exposureAmount} onChange={(event) => setExposureAmount(event.target.value)} inputProps={{ min: 0 }} />
