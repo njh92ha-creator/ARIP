@@ -1,14 +1,14 @@
 import { useState } from 'react'
-import { Alert, Box, Button, Card, CardContent, Chip, Divider, Grid, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Card, CardContent, Chip, Divider, Grid, LinearProgress, Stack, TextField, Typography } from '@mui/material'
 import { CheckCircleOutline, CloudUploadOutlined, DescriptionOutlined, InsertDriveFileOutlined, PlayArrowOutlined, TuneOutlined } from '@mui/icons-material'
 import { useQuery } from '@tanstack/react-query'
 import { api, ClosingAnalysisSet, Company } from '../api'
 
 type SourceType = 'GENERAL_LEDGER' | 'SETTLEMENT_SCHEDULE'
 type Proposal = { sheet_name: string; header_row: number; mapping: Record<string, string>; missing_required: string[]; signature: string }
-type SourceState = { file?: File; proposal?: Proposal; mapping: string; profileId?: string; attached: boolean }
+type SourceState = { file?: File; proposal?: Proposal; profileId?: string; attached: boolean }
 
-const emptySource = (): SourceState => ({ mapping: '', attached: false })
+const emptySource = (): SourceState => ({ attached: false })
 const sourceLabel = (type: SourceType) => type === 'GENERAL_LEDGER' ? '총계정원장' : '결산 명세서'
 const sourceDescription = (type: SourceType) => type === 'GENERAL_LEDGER'
   ? '거래, 계정과목, 적요 정보를 바탕으로 회계 사건과 감사 리스크를 분석합니다.'
@@ -20,9 +20,9 @@ export function UploadPage() {
   const [closingSet, setClosingSet] = useState<ClosingAnalysisSet>()
   const [ledger, setLedger] = useState<SourceState>(emptySource())
   const [settlement, setSettlement] = useState<SourceState>(emptySource())
-  const [result, setResult] = useState<unknown>()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [analysisProgress, setAnalysisProgress] = useState<{ value: number; label: string; status: 'idle' | 'running' | 'completed' | 'error' }>({ value: 0, label: '', status: 'idle' })
 
   if (!company) return <Alert severity="info">분석을 시작하기 전에 설정에서 회사를 등록해주세요.</Alert>
   const activeCompany = company
@@ -47,7 +47,7 @@ export function UploadPage() {
       form.append('source_type', type)
       form.append('file', source.file)
       const response = await api.post<Proposal>('/mapping/propose', form)
-      setSource(type, { ...source, proposal: response.data, mapping: JSON.stringify(response.data.mapping, null, 2) })
+      setSource(type, { ...source, proposal: response.data })
     } catch (cause: any) {
       setError(cause?.response?.data?.detail ?? `${sourceLabel(type)}의 매핑 제안 생성에 실패했습니다.`)
     } finally { setBusy(false) }
@@ -61,7 +61,7 @@ export function UploadPage() {
       const profile = await api.post('/mapping/approve', {
         company_id: activeCompany.id, source_type: type, sheet_name: source.proposal.sheet_name,
         header_row: source.proposal.header_row, source_signature: source.proposal.signature,
-        mapping: JSON.parse(source.mapping),
+        mapping: source.proposal.mapping,
       })
       const activeSet = await ensureSet()
       const form = new FormData()
@@ -73,7 +73,6 @@ export function UploadPage() {
       const response = await api.post(endpoint, form)
       setClosingSet(response.data.closingAnalysisSet)
       setSource(type, { ...source, profileId: profile.data.id, attached: true })
-      setResult(response.data)
     } catch (cause: any) {
       setError(cause?.response?.data?.detail ?? `${sourceLabel(type)}을(를) 결산 분석 세트에 연결하지 못했습니다.`)
     } finally { setBusy(false) }
@@ -82,22 +81,30 @@ export function UploadPage() {
   async function analyze() {
     if (!closingSet || !ledger.attached || !settlement.attached) return
     setBusy(true); setError('')
+    setAnalysisProgress({ value: 10, label: '분석 대상 확인 중', status: 'running' })
     try {
       const response = await api.post<{ queuedEventIds: string[]; qualifiedAccounts: number }>(`/closing-analysis-sets/${closingSet.id}/analyze`)
-      const eventResults: unknown[] = []
-      for (const eventId of response.data.queuedEventIds) {
+      const totalEvents = response.data.queuedEventIds.length
+      if (totalEvents === 0) {
+        setAnalysisProgress({ value: 100, label: '분석 대상이 없습니다', status: 'completed' })
+      }
+      for (const [index, eventId] of response.data.queuedEventIds.entries()) {
+        setAnalysisProgress({ value: 10 + Math.round((index / totalEvents) * 80), label: `전표 분석 중 (${index + 1}/${totalEvents})`, status: 'running' })
         try {
-          const eventResponse = await api.post(`/closing-analysis-sets/${closingSet.id}/analysis-events/${eventId}/analyze`)
-          eventResults.push(eventResponse.data)
+          await api.post(`/closing-analysis-sets/${closingSet.id}/analysis-events/${eventId}/analyze`)
         } catch (cause: any) {
-          eventResults.push({ eventId, status: 'FAILED', error: cause?.response?.data?.detail ?? '전표별 AI 분석에 실패했습니다.' })
+          setError(cause?.response?.data?.detail ?? '전표별 AI 분석에 실패했습니다.')
+          setAnalysisProgress({ value: 100, label: '결산 분석 실패', status: 'error' })
+          return
         }
       }
-      setResult({ ...response.data, eventResults })
+      if (totalEvents > 0) setAnalysisProgress({ value: 90, label: '분석 결과 반영 중', status: 'running' })
       const refreshed = await api.get(`/closing-analysis-sets/${closingSet.id}`)
       setClosingSet(refreshed.data.closingAnalysisSet)
+      setAnalysisProgress({ value: 100, label: '결산 분석 완료', status: 'completed' })
     } catch (cause: any) {
       setError(cause?.response?.data?.detail ?? '결산 분석에 실패했습니다.')
+      setAnalysisProgress({ value: 100, label: '결산 분석 실패', status: 'error' })
     } finally { setBusy(false) }
   }
 
@@ -119,7 +126,6 @@ export function UploadPage() {
       <Button fullWidth variant="contained" disabled={!source.file || busy} onClick={() => propose(type)} startIcon={<TuneOutlined />} sx={{ mt: 1.5 }}>매핑 제안 생성</Button>
       {source.proposal && <Box sx={{ mt: 2 }}>
         <Alert severity={missing.length ? 'warning' : 'success'} sx={{ '& .MuiAlert-message': { minWidth: 0 } }}><Typography variant="body2" sx={{ fontWeight: 600 }}>시트: {source.proposal.sheet_name} · 헤더 행: {source.proposal.header_row}</Typography><Typography variant="caption">누락 필수 항목: {missing.join(', ') || '없음'}</Typography></Alert>
-        <TextField label="매핑 JSON" multiline minRows={7} fullWidth sx={{ mt: 2 }} value={source.mapping} onChange={(event) => setSource(type, { ...source, mapping: event.target.value })} />
         <Button fullWidth variant="contained" sx={{ mt: 1.5 }} disabled={missing.length > 0 || busy} onClick={() => approveAndAttach(type)}>매핑 승인 및 자료 연결</Button>
       </Box>}
     </CardContent></Card>
@@ -137,8 +143,14 @@ export function UploadPage() {
     <Divider sx={{ my: 3 }} />
     <Card sx={{ borderColor: ready ? 'rgba(31, 111, 213, 0.3)' : '#E5E7EB', bgcolor: ready ? 'rgba(31, 111, 213, 0.035)' : '#FFFFFF' }}><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} spacing={2}><Box><Typography variant="h6">통합 결산 분석</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{ready ? '두 자료가 연결되었습니다. 통합 분석을 실행할 수 있습니다.' : '두 자료의 매핑을 승인하고 결산 분석 세트에 연결하면 실행할 수 있습니다.'}</Typography></Box><Button size="large" variant="contained" disabled={!ready || busy} onClick={analyze} startIcon={<PlayArrowOutlined />} sx={{ minWidth: 178 }}>결산 분석 실행</Button></Stack>
+      {analysisProgress.status !== 'idle' && <Box sx={{ mt: 2.5 }}>
+        <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.75 }}>
+          <Typography variant="body2" color={analysisProgress.status === 'error' ? 'error.main' : 'text.secondary'}>{analysisProgress.label}</Typography>
+          <Typography variant="body2" color="text.secondary">{analysisProgress.value}%</Typography>
+        </Stack>
+        <LinearProgress variant="determinate" value={analysisProgress.value} color={analysisProgress.status === 'error' ? 'error' : analysisProgress.status === 'completed' ? 'success' : 'primary'} />
+      </Box>}
     </CardContent></Card>
     {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
-    {Boolean(result) && <Card sx={{ mt: 2.5 }}><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}><Typography variant="h6">처리 결과</Typography><Box component="pre" sx={{ m: 0, mt: 1.5, p: 2, overflow: 'auto', borderRadius: 2, bgcolor: '#F8FAFC', border: '1px solid #E5E7EB', fontFamily: 'monospace', fontSize: 12 }}>{JSON.stringify(result, null, 2)}</Box></CardContent></Card>}
   </Box>
 }
