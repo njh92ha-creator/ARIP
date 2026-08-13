@@ -97,6 +97,7 @@ export interface RiskReviewCase {
   transferred_at: string
   answers: RiskReviewAnswer[]
   question_assessments: RiskReviewQuestionAssessment[]
+  overall_assessment: RiskReviewOverallAssessment | null
   question_statuses: RiskReviewQuestionStatus[]
   attachments: RiskReviewAttachment[]
 }
@@ -132,6 +133,16 @@ export interface RiskReviewQuestionAssessment {
   question: string
   status: 'RESOLVED' | 'NEEDS_FOLLOW_UP' | 'NOT_RESOLVED'
   reason: string
+  assessed_at: string
+}
+
+export interface RiskReviewOverallAssessment {
+  id: string
+  question_findings: Array<{ question: string; status: 'RESOLVED' | 'NEEDS_FOLLOW_UP' | 'NOT_RESOLVED'; reason: string }>
+  confirmed_facts: string[]
+  conclusion_status: 'MAINTAIN_TREATMENT' | 'ADJUSTMENT_REVIEW' | 'ADDITIONAL_EVIDENCE_NEEDED'
+  accounting_conclusion: string
+  recommended_actions: Array<{ unresolvedQuestion: string; missingFact: string; potentialConclusionEffect: string; action: string }>
   assessed_at: string
 }
 

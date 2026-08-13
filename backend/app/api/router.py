@@ -74,6 +74,7 @@ from app.services.orchestrator import process_journals
 from app.services.ai_risk_analysis import assign_risk_code
 from app.ai.provider import KIFRS_EVENT_ANALYSIS_PROMPT
 from app.services.review_question_assessment import assess_review_question
+from app.services.review_overall_assessment import assess_review_overall
 from app.services.knowledge_rag import KnowledgeIndexError, delete_indexed_document, index_document
 from app.services.closing_analysis import (
     analyze_closing_analysis_set,
@@ -1117,6 +1118,9 @@ def _review_case_payload(review_case: Any) -> dict[str, Any]:
     payload["question_assessments"] = encode(
         repository.question_assessments_for_review_case(review_case.id)
     )
+    payload["overall_assessment"] = encode(
+        repository.overall_assessment_for_review_case(review_case.id)
+    )
     payload["question_statuses"] = encode(
         repository.question_statuses_for_review_case(review_case.id)
     )
@@ -1223,6 +1227,45 @@ def assess_risk_review_question(
             question=payload.question,
             status=assessment["status"],
             reason=assessment["reason"],
+        )
+    )
+
+
+@router.post("/risk-reviews/{review_case_id}/overall-assessment")
+def assess_risk_review_overall(review_case_id: UUID) -> Any:
+    review_case = _review_case(review_case_id)
+    answers_by_question: dict[str, list[str]] = {}
+    for answer in repository.answers_for_review_case(review_case_id):
+        if answer.answer.strip():
+            answers_by_question.setdefault(answer.question, []).append(answer.answer)
+    if not answers_by_question:
+        raise HTTPException(422, "저장된 답변이 있어야 종합 AI 검토를 실행할 수 있습니다.")
+    options = _ai_runtime_options()
+    try:
+        assessment = assess_review_overall(
+            audit_issues=review_case.package.audit_issues,
+            questions=list(dict.fromkeys([
+                *(review_case.package.expected_questions or []),
+                *answers_by_question.keys(),
+            ])),
+            answers_by_question=answers_by_question,
+            provider=options["ai_provider"],
+            model=options["ai_model"],
+            api_key_env=options["ai_key_env"],
+            enabled=options["external_ai_enabled"],
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(502, f"종합 AI 검토에 실패했습니다: {type(exc).__name__}") from exc
+    return encode(
+        repository.save_review_overall_assessment(
+            review_case_id,
+            question_findings=assessment["questionFindings"],
+            confirmed_facts=assessment["confirmedFacts"],
+            conclusion_status=assessment["conclusionStatus"],
+            accounting_conclusion=assessment["accountingConclusion"],
+            recommended_actions=assessment["recommendedActions"],
         )
     )
 

@@ -314,6 +314,18 @@ class RiskReviewQuestionAssessment:
 
 
 @dataclass(slots=True)
+class RiskReviewOverallAssessment:
+    review_case_id: UUID
+    question_findings: list[dict[str, str]]
+    confirmed_facts: list[str]
+    conclusion_status: str
+    accounting_conclusion: str
+    recommended_actions: list[dict[str, str]]
+    assessed_at: datetime = field(default_factory=utcnow)
+    id: UUID = field(default_factory=uuid4)
+
+
+@dataclass(slots=True)
 class RiskReviewQuestionStatus:
     review_case_id: UUID
     question: str

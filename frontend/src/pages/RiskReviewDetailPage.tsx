@@ -29,7 +29,7 @@ import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import { Link, useParams } from 'react-router-dom'
-import { api, Company, RiskReviewAnswer, RiskReviewAttachment, RiskReviewCase, RiskReviewQuestionAssessment } from '../api'
+import { api, Company, RiskReviewAnswer, RiskReviewAttachment, RiskReviewCase, RiskReviewQuestionAssessment, RiskReviewOverallAssessment } from '../api'
 import { RiskReviewSnapshotEvidence } from './RiskReviewSnapshotEvidence'
 
 const primary = '#0056B0'
@@ -167,6 +167,33 @@ function AnswerEditor({ reviewCaseId, cacheKey, question, savedAnswers, question
       </Box>)}
     </Stack>
   </Box>
+}
+
+const overallConclusionLabel: Record<RiskReviewOverallAssessment['conclusion_status'], string> = {
+  MAINTAIN_TREATMENT: '현 회계처리 유지 가능',
+  ADJUSTMENT_REVIEW: '수정 검토 필요',
+  ADDITIONAL_EVIDENCE_NEEDED: '판단 보류·추가 자료 필요',
+}
+
+function OverallAssessmentCard({ reviewCaseId, cacheKey, hasAnswers, assessment }: { reviewCaseId: string; cacheKey: string; hasAnswers: boolean; assessment: RiskReviewOverallAssessment | null }) {
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: async () => (await api.post<RiskReviewOverallAssessment>(`/risk-reviews/${reviewCaseId}/overall-assessment`)).data,
+    onSuccess: (saved) => queryClient.setQueryData<RiskReviewCase>(['risk-review', cacheKey], (current) => current ? { ...current, overall_assessment: saved } : current),
+  })
+  return <Card variant="outlined" sx={{ mt: 2.5, bgcolor: '#F8FAFC' }}><CardContent>
+    <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} spacing={1.5}>
+      <Box><Typography fontWeight={700}>종합 AI 검토</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: .25 }}>전체 질문·답변을 바탕으로 회계 결론과 미해소 사항을 검토합니다.</Typography></Box>
+      <Button variant="contained" disabled={!hasAnswers || mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? '종합 검토 중' : '종합 AI 검토'}</Button>
+    </Stack>
+    {mutation.isError ? <Alert severity="error" sx={{ mt: 1.5 }}>{errorMessage(mutation.error, '종합 AI 검토에 실패했습니다.')}</Alert> : null}
+    {assessment && <Stack spacing={2} sx={{ mt: 2.5 }}>
+      <Box><Typography sx={labelSx}>종합 회계 결론</Typography><Chip label={overallConclusionLabel[assessment.conclusion_status]} color={assessment.conclusion_status === 'ADJUSTMENT_REVIEW' ? 'error' : assessment.conclusion_status === 'ADDITIONAL_EVIDENCE_NEEDED' ? 'warning' : 'success'} size="small" sx={{ mt: .75 }} /><Typography sx={{ mt: 1, whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{assessment.accounting_conclusion}</Typography></Box>
+      <Box><Typography sx={labelSx}>질문별 판단 요약</Typography><Stack spacing={.75} sx={{ mt: .75 }}>{assessment.question_findings.map((item) => <Typography key={item.question} variant="body2">• {item.question} — {item.status === 'RESOLVED' ? '해소' : item.status === 'NEEDS_FOLLOW_UP' ? '추가 검토 필요' : '해소 불가'}: {item.reason}</Typography>)}</Stack></Box>
+      <Box><Typography sx={labelSx}>확인된 핵심 사실</Typography><ReadOnlyList items={assessment.confirmed_facts} emptyText="확인된 사실이 없습니다." /></Box>
+      <Box><Typography sx={labelSx}>권고 조치 및 결론 변경 가능 사항</Typography><Stack spacing={1} sx={{ mt: .75 }}>{assessment.recommended_actions.map((item, index) => <Box key={`${item.unresolvedQuestion}-${index}`} sx={{ p: 1.25, border: `1px solid ${border}`, borderRadius: 1.5, bgcolor: '#fff' }}><Typography variant="body2" fontWeight={700}>미해소 질문: {item.unresolvedQuestion}</Typography><Typography variant="body2" sx={{ mt: .5 }}>확인 필요: {item.missingFact}</Typography><Typography variant="body2" sx={{ mt: .5 }}>결론 영향: {item.potentialConclusionEffect}</Typography><Typography variant="body2" sx={{ mt: .5 }}>조치: {item.action}</Typography></Box>)}</Stack></Box>
+    </Stack>}
+  </CardContent></Card>
 }
 
 function SnapshotCard({ reviewCase }: { reviewCase: RiskReviewCase }) {
@@ -475,6 +502,7 @@ export function RiskReviewDetailPage() {
         <Stack spacing={1.5} sx={{ mt: 2 }}>
           {questions.length ? questions.map((question) => <AnswerEditor key={question} reviewCaseId={reviewCase.id} cacheKey={riskCode} question={question} savedAnswers={answersByQuestion.get(question) ?? []} questionStatus={statusByQuestion.get(question)} assessment={assessmentByQuestion.get(question)} />) : <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>이관된 검토 질문이 없습니다.</Typography>}
         </Stack>
+        <OverallAssessmentCard reviewCaseId={reviewCase.id} cacheKey={riskCode} hasAnswers={reviewCase.answers.some((item) => item.answer.trim().length > 0)} assessment={reviewCase.overall_assessment} />
       </CardContent></Card>
       <AttachmentCard reviewCase={reviewCase} cacheKey={riskCode} />
     </Stack>

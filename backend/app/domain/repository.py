@@ -27,6 +27,7 @@ from .models import (
     RiskSemanticEmbedding,
     RiskReviewAnswer,
     RiskReviewQuestionAssessment,
+    RiskReviewOverallAssessment,
     RiskReviewAttachment,
     RiskReviewCase,
     RiskReviewSemanticEmbedding,
@@ -157,6 +158,7 @@ class InMemoryRepository:
         self.risk_review_semantic_embeddings: dict[UUID, RiskReviewSemanticEmbedding] = {}
         self.risk_review_answers: dict[UUID, RiskReviewAnswer] = {}
         self.risk_review_question_assessments: dict[UUID, RiskReviewQuestionAssessment] = {}
+        self.risk_review_overall_assessments: dict[UUID, RiskReviewOverallAssessment] = {}
         self.risk_review_question_statuses: dict[UUID, RiskReviewQuestionStatus] = {}
         self.risk_review_attachments: dict[UUID, RiskReviewAttachment] = {}
         self.risk_memory: dict[UUID, list[RiskMemoryEntry]] = defaultdict(list)
@@ -247,6 +249,7 @@ class InMemoryRepository:
                         "RiskReviewSemanticEmbedding": "risk_review_semantic_embeddings",
                         "RiskReviewAnswer": "risk_review_answers",
                         "RiskReviewQuestionAssessment": "risk_review_question_assessments",
+                        "RiskReviewOverallAssessment": "risk_review_overall_assessments",
                         "RiskReviewQuestionStatus": "risk_review_question_statuses",
                         "RiskReviewAttachment": "risk_review_attachments",
                         "VarianceObservation": "variance_observations",
@@ -292,6 +295,7 @@ class InMemoryRepository:
             self.risk_review_semantic_embeddings.clear()
             self.risk_review_answers.clear()
             self.risk_review_question_assessments.clear()
+            self.risk_review_overall_assessments.clear()
             self.risk_review_question_statuses.clear()
             self.risk_review_attachments.clear()
             self.risk_memory.clear()
@@ -401,6 +405,7 @@ class InMemoryRepository:
                 RiskReviewSemanticEmbedding: self.risk_review_semantic_embeddings,
                 RiskReviewAnswer: self.risk_review_answers,
                 RiskReviewQuestionAssessment: self.risk_review_question_assessments,
+                RiskReviewOverallAssessment: self.risk_review_overall_assessments,
                 RiskReviewQuestionStatus: self.risk_review_question_statuses,
                 RiskReviewAttachment: self.risk_review_attachments,
                 VarianceObservation: self.variance_observations,
@@ -979,6 +984,62 @@ class InMemoryRepository:
             else:
                 existing.status = status
                 existing.reason = reason
+                existing.assessed_at = utcnow()
+            return self.save(existing)
+
+    def overall_assessment_for_review_case(
+        self, review_case_id: UUID
+    ) -> RiskReviewOverallAssessment | None:
+        with self._lock:
+            if self._db_ready:
+                loaded: dict[UUID, RiskReviewOverallAssessment] = {}
+                with engine.connect() as connection:
+                    rows = connection.execute(
+                        text("select payload from arip_state where collection = 'RiskReviewOverallAssessment'")
+                    )
+                    for (payload,) in rows:
+                        assessment = pickle.loads(bytes(payload))
+                        if (
+                            isinstance(assessment, RiskReviewOverallAssessment)
+                            and assessment.review_case_id == review_case_id
+                        ):
+                            loaded[assessment.id] = assessment
+                self.risk_review_overall_assessments.update(loaded)
+            matches = [
+                assessment
+                for assessment in self.risk_review_overall_assessments.values()
+                if assessment.review_case_id == review_case_id
+            ]
+            return max(matches, key=lambda assessment: assessment.assessed_at) if matches else None
+
+    def save_review_overall_assessment(
+        self,
+        review_case_id: UUID,
+        *,
+        question_findings: list[dict[str, str]],
+        confirmed_facts: list[str],
+        conclusion_status: str,
+        accounting_conclusion: str,
+        recommended_actions: list[dict[str, str]],
+    ) -> RiskReviewOverallAssessment:
+        with self._lock:
+            self._ensure_review_persistence()
+            existing = self.overall_assessment_for_review_case(review_case_id)
+            if existing is None:
+                existing = RiskReviewOverallAssessment(
+                    review_case_id=review_case_id,
+                    question_findings=question_findings,
+                    confirmed_facts=confirmed_facts,
+                    conclusion_status=conclusion_status,
+                    accounting_conclusion=accounting_conclusion,
+                    recommended_actions=recommended_actions,
+                )
+            else:
+                existing.question_findings = question_findings
+                existing.confirmed_facts = confirmed_facts
+                existing.conclusion_status = conclusion_status
+                existing.accounting_conclusion = accounting_conclusion
+                existing.recommended_actions = recommended_actions
                 existing.assessed_at = utcnow()
             return self.save(existing)
 
