@@ -1261,8 +1261,8 @@ def assess_risk_review_overall(review_case_id: UUID) -> Any:
     return encode(
         repository.save_review_overall_assessment(
             review_case_id,
-            question_findings=assessment["questionFindings"],
-            confirmed_facts=assessment["confirmedFacts"],
+            question_findings=[],
+            confirmed_facts=[],
             conclusion_status=assessment["conclusionStatus"],
             accounting_conclusion=assessment["accountingConclusion"],
             recommended_actions=assessment["recommendedActions"],

@@ -13,12 +13,11 @@ OVERALL_ASSESSMENT_PROMPT = """# Role
 이 결과는 검토자의 의사결정을 돕는 의견이며, 리스크를 자동으로 클리어하거나 회계처리 오류를 확정하지 않는다.
 
 # 판단 기준
-1. 질문별로 답변이 해당 질문의 확인 목적을 충족하는지 해소, 추가 검토 필요, 해소 불가 중 하나로 판단한다.
-2. 답변에서 실제로 확인된 사실만 confirmedFacts에 정리한다.
-3. 확인된 사실과 미해소 사항을 종합해 현 회계처리 유지 가능, 수정 검토 필요, 판단 보류·추가 자료 필요 중 하나의 회계 결론을 제시한다.
+1. 답변이 원 감사 이슈와 회계처리 결론에 미치는 영향을 분석한다.
+2. accountingConclusion은 결론을 첫 문장에 단정적으로 제시하고, 그 뒤에 실제 답변에서 확인된 중요 근거만 한두 문장으로 덧붙인다.
+3. "검토해야 한다", "가능성이 있다", "필요할 수 있다"처럼 결론을 흐리는 표현을 쓰지 않는다. 다만 답변만으로 결론을 낼 수 없을 때는 "판단 보류"라고 명확히 결론 내린다.
 4. 권고 조치에는 종합 회계 결론을 변경할 수 있는 미해소 질문, 아직 확인되지 않은 사실, 그 사실이 확인되면 결론이 어떻게 달라질 수 있는지, 필요한 자료 또는 후속 조치를 포함한다.
-5. 단순히 답변이 질문에 답했는지만 판단하지 말고, 답변이 원 감사 이슈와 회계처리 결론에 미치는 영향을 분석한다.
-6. 입력에 없는 사실, 계약 조건, 증빙, 금액, 회계기준 근거를 임의로 만들지 않는다.
+5. 입력에 없는 사실, 계약 조건, 증빙, 금액, 회계기준 근거를 임의로 만들지 않는다.
 
 # Output
 응답 스키마에 맞는 JSON 객체 하나만 반환하라.
@@ -51,13 +50,11 @@ _SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "questionFindings": {"type": "array", "items": _FINDING},
-        "confirmedFacts": {"type": "array", "items": {"type": "string"}},
         "conclusionStatus": {"type": "string", "enum": ["MAINTAIN_TREATMENT", "ADJUSTMENT_REVIEW", "ADDITIONAL_EVIDENCE_NEEDED"]},
         "accountingConclusion": {"type": "string"},
         "recommendedActions": {"type": "array", "items": _ACTION},
     },
-    "required": ["questionFindings", "confirmedFacts", "conclusionStatus", "accountingConclusion", "recommendedActions"],
+    "required": ["conclusionStatus", "accountingConclusion", "recommendedActions"],
 }
 
 
