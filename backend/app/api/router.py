@@ -1247,6 +1247,11 @@ def assess_risk_review_overall(review_case_id: UUID) -> Any:
     if not answers_by_question:
         raise HTTPException(422, "저장된 답변이 있어야 종합 AI 검토를 실행할 수 있습니다.")
     options = _ai_runtime_options()
+    question_assessments = {
+        item.question: {"status": item.status, "reason": item.reason}
+        for item in repository.question_assessments_for_review_case(review_case_id)
+        if item.question not in excluded_questions
+    }
     try:
         assessment = assess_review_overall(
             audit_issues=review_case.package.audit_issues,
@@ -1258,6 +1263,7 @@ def assess_risk_review_overall(review_case_id: UUID) -> Any:
                 *answers_by_question.keys(),
             ])),
             answers_by_question=answers_by_question,
+            question_assessments=question_assessments,
             provider=options["ai_provider"],
             model=options["ai_model"],
             api_key_env=options["ai_key_env"],

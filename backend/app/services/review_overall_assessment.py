@@ -19,6 +19,17 @@ OVERALL_ASSESSMENT_PROMPT = """# Role
 4. 권고 조치에는 종합 회계 결론을 변경할 수 있는 미해소 질문, 아직 확인되지 않은 사실, 그 사실이 확인되면 결론이 어떻게 달라질 수 있는지, 필요한 자료 또는 후속 조치를 포함한다.
 5. 입력에 없는 사실, 계약 조건, 증빙, 금액, 회계기준 근거를 임의로 만들지 않는다.
 
+# Additional constraints
+- `questionAssessments` is the latest assessment for each question. Treat a question with
+  status `RESOLVED` and its saved answer as a confirmed fact unless the saved answers for
+  that same question contradict each other.
+- Do not repeat, as a recommended action, a fact that a saved answer already states.
+- Do not create a new question or a new evidence request outside the supplied `questions`.
+- Include a recommended action only for a supplied question that has no saved answer, has a
+  `NEEDS_FOLLOW_UP` or `NOT_RESOLVED` assessment, or whose saved answers contradict each other.
+- If every supplied question is answered and resolved without contradiction, return an empty
+  `recommendedActions` array.
+
 # Output
 응답 스키마에 맞는 JSON 객체 하나만 반환하라.
 """
@@ -60,6 +71,7 @@ _SCHEMA = {
 
 def assess_review_overall(
     *, audit_issues: list[str], questions: list[str], answers_by_question: dict[str, list[str]],
+    question_assessments: dict[str, dict[str, str]],
     provider: str, model: str, api_key_env: str | None, enabled: bool,
 ) -> dict[str, Any]:
     if not enabled:
@@ -79,6 +91,7 @@ def assess_review_overall(
                 "auditIssues": audit_issues,
                 "questions": questions,
                 "answersByQuestion": answers_by_question,
+                "questionAssessments": question_assessments,
             }, ensure_ascii=False)},
         ],
         text={"format": {
