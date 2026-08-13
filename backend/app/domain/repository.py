@@ -66,6 +66,7 @@ def hydrate_legacy_object(obj: Any) -> None:
             if not hasattr(package, field_name):
                 object.__setattr__(package, field_name, default)
     if isinstance(obj, RiskReviewCase):
+        hydrate_legacy_object(obj.package)
         defaults = {
             "exposure_amount": 0,
             "exposure_basis": "",
