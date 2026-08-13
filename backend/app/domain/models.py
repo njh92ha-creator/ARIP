@@ -210,6 +210,7 @@ class RiskPackage:
     ledger_evidence: list[dict[str, str]] = field(default_factory=list)
     issue_types: list[str] = field(default_factory=list)
     review_similarity_cases: list[dict[str, Any]] = field(default_factory=list)
+    representative_account_code: str = ""
     version: int = 1
     id: UUID = field(default_factory=uuid4)
 

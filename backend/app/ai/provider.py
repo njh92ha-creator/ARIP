@@ -31,9 +31,10 @@ KIFRS_EVENT_ANALYSIS_PROMPT = """# Role
    - REVIEW_REQUIRED: 회계처리 오류, 분류 오류, 인식시점 오류, 측정 오류, 표시·공시 오류 또는 금액 대응이 필요한 구체적 쟁점이 있음.
    - INSUFFICIENT_FACTS: 전표만으로 결론을 확정할 수 없고 확인이 필요한 사실이 회계처리 결론을 바꿀 구체적 가능성이 있음.
    - triageReason에는 해당 판단의 구체적 이유를 작성한다.
-   - NO_ACTION이면 riskSummary와 eventInference는 빈 문자열로, issueTypes, auditIssues, expectedQuestions, evidenceChecklist, standardsEvidence, missingFacts, ledgerEvidence는 빈 배열로 작성한다.
+   - NO_ACTION이면 riskSummary, eventInference, representativeAccountCode는 빈 문자열로, issueTypes, auditIssues, expectedQuestions, evidenceChecklist, standardsEvidence, missingFacts, ledgerEvidence는 빈 배열로 작성한다.
 2. 관련 계정
    - 해당 회계처리의 대표 계정을 relatedAccounts에 작성한다.
+   - representativeAccountCode에는 이번 전표의 eventFacts.journalLines에 실제로 존재하는 계정코드 중, 감사 이슈와 가장 직접 관련된 계정코드 하나만 작성한다. 계정코드를 임의 생성하지 마라.
 3. 원장 전표 수
    - eventFacts.sameTypeVoucherCount 값을 voucherCount에 그대로 작성한다.
 4. 분석 결과
@@ -75,6 +76,7 @@ RISK_ANALYSIS_SCHEMA = {
         "riskSummary": {"type": "string"},
         "issueTypes": {"type": "array", "items": {"type": "string"}},
         "relatedAccounts": {"type": "array", "items": {"type": "string"}},
+        "representativeAccountCode": {"type": "string"},
         "voucherCount": {"type": "integer", "minimum": 0},
         "eventInference": {"type": "string"},
         "auditIssues": {"type": "array", "items": {"type": "string"}},
@@ -122,6 +124,7 @@ RISK_ANALYSIS_SCHEMA = {
         "riskSummary",
         "issueTypes",
         "relatedAccounts",
+        "representativeAccountCode",
         "voucherCount",
         "eventInference",
         "auditIssues",

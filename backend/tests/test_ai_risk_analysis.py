@@ -206,6 +206,7 @@ class AiRiskFactsTest(unittest.TestCase):
 
     def test_risk_code_uses_account_class_date_and_three_digit_sequence(self) -> None:
         analysis = {
+            "representativeAccountCode": self.lines[0].account_code,
             "riskSummary": "Borrowing classification requires review.",
             "issueTypes": ["Borrowing classification"],
             "relatedAccounts": ["단기차입금"],

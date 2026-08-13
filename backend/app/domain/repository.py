@@ -61,6 +61,7 @@ def hydrate_legacy_object(obj: Any) -> None:
             "ledger_evidence": [],
             "issue_types": [],
             "review_similarity_cases": [],
+            "representative_account_code": "",
         }
         for field_name, default in defaults.items():
             if not hasattr(package, field_name):

@@ -28,15 +28,8 @@ ACCOUNT_CLASS_PREFIX = {
 
 def assign_risk_code(repo: Any, risk: Risk, lines: list[JournalLine]) -> str:
     """Assign a business ID without replacing the internal UUID relation key."""
-    related = {value.strip() for value in risk.package.related_accounts if value.strip()}
-    representative = next(
-        (
-            line
-            for line in lines
-            if line.account_code in related or line.account_name in related
-        ),
-        lines[0] if lines else None,
-    )
+    representative_code = risk.package.representative_account_code.strip()
+    representative = next((line for line in lines if line.account_code == representative_code), None)
     if representative is None:
         return ""
 
@@ -213,6 +206,7 @@ def risk_from_ai_analysis(
         standards_evidence=standards_evidence,
         ledger_evidence=[dict(item) for item in analysis.get("ledgerEvidence", [])],
         issue_types=issue_types,
+        representative_account_code=str(analysis.get("representativeAccountCode", "")).strip(),
     )
     title = f"검토 필요: {issue_types[0]}"
     statement = summary
