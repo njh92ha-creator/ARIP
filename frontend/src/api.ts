@@ -92,6 +92,7 @@ export interface RiskReviewCase {
   severity: 'HIGH' | 'MEDIUM' | 'LOW'
   exposure_amount: number
   exposure_basis: string
+  remediation_actions: string
   materiality_level: string
   status: string
   transferred_at: string

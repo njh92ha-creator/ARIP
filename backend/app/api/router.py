@@ -31,6 +31,7 @@ from app.api.schemas import (
     RiskReviewQuestionStatusUpdate,
     RiskReviewCaseDecision,
     RiskReviewExposureUpdate,
+    RiskReviewRemediationActionsUpdate,
     RiskReviewCaseSeverity,
     RiskReviewDecision,
     RiskReviewTransfer,
@@ -1328,6 +1329,20 @@ def set_risk_review_case_exposure(
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    return _review_case_payload(review_case)
+
+
+@router.put("/risk-reviews/{review_case_id}/remediation-actions")
+def set_risk_review_remediation_actions(
+    review_case_id: UUID,
+    payload: RiskReviewRemediationActionsUpdate,
+) -> Any:
+    try:
+        review_case = repository.update_review_case_remediation_actions(
+            review_case_id, payload.remediation_actions
+        )
+    except KeyError as exc:
+        raise HTTPException(404, "review case not found") from exc
     return _review_case_payload(review_case)
 
 

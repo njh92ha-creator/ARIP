@@ -274,6 +274,7 @@ class RiskReviewCase:
     severity: str
     exposure_amount: int = 0
     exposure_basis: str = ""
+    remediation_actions: str = ""
     materiality_level: str = "LOW"
     closing_analysis_set_id: UUID | None = None
     cross_finding_ids: list[UUID] = field(default_factory=list)

@@ -323,6 +323,7 @@ export function RiskReviewDetailPage() {
   const [exposureAmount, setExposureAmount] = useState('')
   const [exposureBasis, setExposureBasis] = useState('')
   const [exposureOpen, setExposureOpen] = useState(false)
+  const [remediationActions, setRemediationActions] = useState('')
   const { data: companies, isLoading: isCompanyLoading, isError: isCompanyError } = useQuery({
     queryKey: ['companies'],
     queryFn: async () => (await api.get<Company[]>('/companies')).data,
@@ -406,7 +407,8 @@ export function RiskReviewDetailPage() {
     if (!reviewCase) return
     setExposureAmount(reviewCase.exposure_amount ? new Intl.NumberFormat('ko-KR').format(reviewCase.exposure_amount) : '')
     setExposureBasis(reviewCase.exposure_basis || '')
-  }, [reviewCase?.id, reviewCase?.exposure_amount, reviewCase?.exposure_basis])
+    setRemediationActions(reviewCase.remediation_actions || '')
+  }, [reviewCase?.id, reviewCase?.exposure_amount, reviewCase?.exposure_basis, reviewCase?.remediation_actions])
   const controlsPending = decision.isPending || severity.isPending || clearReview.isPending
   const exposure = useMutation({
     mutationFn: async () => {
@@ -422,6 +424,15 @@ export function RiskReviewDetailPage() {
       setExposureBasis(updated.exposure_basis || '')
       setExposureOpen(false)
     },
+  })
+  const remediation = useMutation({
+    mutationFn: async () => {
+      if (!reviewCaseId) throw new Error('review case is not loaded')
+      return (await api.put<RiskReviewCase>(`/risk-reviews/${reviewCaseId}/remediation-actions`, {
+        remediation_actions: remediationActions,
+      })).data
+    },
+    onSuccess: (updated) => queryClient.setQueryData<RiskReviewCase>(['risk-review', riskCode], updated),
   })
 
   if (!riskCode) return <Alert severity="error">검토 케이스 경로가 올바르지 않습니다.</Alert>
@@ -482,6 +493,7 @@ export function RiskReviewDetailPage() {
     {controlError ? <Alert severity="error" sx={{ mb: 2 }}>{controlError}</Alert> : null}
     {reviewCase.review_decision === 'PASS' ? <Alert severity="success" sx={{ mb: 2 }}>Pass로 분류되어 검토 목록에서는 숨겨집니다. 이 상세 경로는 계속 사용할 수 있습니다.</Alert> : null}
     <Card sx={cardSx}><CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}><Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}><Box><Typography fontWeight={700}>노출금액</Typography><Typography color="text.secondary" variant="body2">{reviewCase.exposure_amount ? `${new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 2 }).format(reviewCase.exposure_amount / 1_000_000)}백만원` : '노출금액 미입력'} · {reviewCase.exposure_basis ? '근거 있음' : '근거 미입력'}</Typography></Box><Button size="small" variant="outlined" onClick={() => setExposureOpen(true)}>입력·수정</Button></Stack></CardContent></Card>
+    <Card sx={{ ...cardSx, mt: 1.5 }}><CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}><Typography fontWeight={700}>수정/조치사항</Typography><TextField fullWidth multiline minRows={3} value={remediationActions} onChange={(event) => setRemediationActions(event.target.value)} placeholder="수정 또는 조치사항을 입력하세요." sx={{ mt: 1.25 }} /><Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 1 }}><Box>{remediation.isError ? <Typography color="error" variant="caption">{errorMessage(remediation.error, '수정/조치사항을 저장하지 못했습니다.')}</Typography> : null}</Box><Button size="small" variant="contained" disabled={remediation.isPending} onClick={() => remediation.mutate()}>{remediation.isPending ? '저장 중' : '저장'}</Button></Stack></CardContent></Card>
     <Dialog open={exposureOpen} onClose={() => setExposureOpen(false)} fullWidth maxWidth="sm"><DialogTitle>리스크 노출금액</DialogTitle><DialogContent><Stack spacing={2} sx={{ pt: 1 }}><TextField label="노출금액 (KRW)" value={exposureAmount} onChange={(event) => { const digits = event.target.value.replaceAll(/[^0-9]/g, ''); setExposureAmount(digits ? new Intl.NumberFormat('ko-KR').format(Number(digits)) : '') }} inputMode="numeric" /><TextField label="산정 근거" multiline minRows={4} value={exposureBasis} onChange={(event) => setExposureBasis(event.target.value)} />{exposure.isError ? <Alert severity="error">노출금액을 저장하지 못했습니다.</Alert> : null}</Stack></DialogContent><DialogActions><Button onClick={() => setExposureOpen(false)}>닫기</Button><Button variant="contained" disabled={exposure.isPending} onClick={() => exposure.mutate()}>{exposure.isPending ? '저장 중' : '저장'}</Button></DialogActions></Dialog>
     <Stack spacing={3}>
       <Card sx={{ ...cardSx, display: 'none' }}><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>

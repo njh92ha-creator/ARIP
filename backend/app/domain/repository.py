@@ -73,6 +73,7 @@ def hydrate_legacy_object(obj: Any) -> None:
         defaults = {
             "exposure_amount": 0,
             "exposure_basis": "",
+            "remediation_actions": "",
             "materiality_level": "LOW",
             "closing_analysis_set_id": None,
             "cross_finding_ids": [],
@@ -1153,6 +1154,17 @@ class InMemoryRepository:
                 raise KeyError(review_case_id)
             review_case.exposure_amount = exposure_amount
             review_case.exposure_basis = exposure_basis
+            return self.save(review_case)
+
+    def update_review_case_remediation_actions(
+        self, review_case_id: UUID, remediation_actions: str
+    ) -> RiskReviewCase:
+        with self._lock:
+            self._ensure_review_persistence()
+            review_case = self.get_review_case(review_case_id)
+            if review_case is None:
+                raise KeyError(review_case_id)
+            review_case.remediation_actions = remediation_actions
             return self.save(review_case)
 
     def toggle_review_case_clear(self, review_case_id: UUID) -> RiskReviewCase:

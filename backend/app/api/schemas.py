@@ -92,6 +92,10 @@ class RiskReviewExposureUpdate(BaseModel):
     exposure_basis: str = ""
 
 
+class RiskReviewRemediationActionsUpdate(BaseModel):
+    remediation_actions: str = ""
+
+
 class RiskDelete(BaseModel):
     expected_version: int = 1
 
