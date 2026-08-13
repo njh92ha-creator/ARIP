@@ -206,9 +206,7 @@ function SnapshotCard({ reviewCase }: { reviewCase: RiskReviewCase }) {
       <Box><Typography sx={labelSx}>분석 경로</Typography><Typography fontWeight={700} sx={{ mt: .5 }}>{reviewCase.route}</Typography></Box>
     </Box>
     <Divider sx={{ my: 2.5 }} />
-    <Typography sx={labelSx}>리스크 진술</Typography>
-    <Typography sx={{ mt: .75, lineHeight: 1.75 }}>{reviewCase.statement}</Typography>
-    <Typography sx={{ ...labelSx, mt: 2.25 }}>종합 판단</Typography>
+    <Typography sx={labelSx}>종합 판단</Typography>
     <Typography color="text.secondary" sx={{ mt: .75, lineHeight: 1.75 }}>{pkg.summary || '-'}</Typography>
     <Typography sx={{ ...labelSx, mt: 2.25 }}>회계사건 추론</Typography>
     <Typography color="text.secondary" sx={{ mt: .75, lineHeight: 1.75 }}>{pkg.event_inference || '-'}</Typography>
