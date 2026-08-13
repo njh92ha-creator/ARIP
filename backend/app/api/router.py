@@ -71,7 +71,7 @@ from app.services.mapping import propose_mapping
 from app.services.orchestrator import process_journals
 from app.services.ai_risk_analysis import assign_risk_code
 from app.ai.provider import KIFRS_EVENT_ANALYSIS_PROMPT
-from app.services.knowledge_rag import KnowledgeIndexError, index_document
+from app.services.knowledge_rag import KnowledgeIndexError, delete_indexed_document, index_document
 from app.services.closing_analysis import (
     analyze_closing_analysis_set,
     analyze_queued_closing_event,
@@ -601,6 +601,31 @@ def list_knowledge_candidates(company_id: UUID) -> Any:
     ]
 
 
+@router.delete("/settings/knowledge-sources/local-standards/documents")
+def delete_knowledge_documents(
+    company_id: UUID,
+    candidate_ids: list[UUID] = Query(...),
+) -> Any:
+    """Permanently delete selected uploaded standards and their RAG data."""
+    requested_ids = {str(value) for value in candidate_ids}
+    selected = [
+        (candidate_id, candidate)
+        for candidate_id, candidate in knowledge_candidates.items()
+        if candidate_id in requested_ids and candidate.get("companyId") == str(company_id)
+    ]
+    if len(selected) != len(requested_ids):
+        raise HTTPException(404, "삭제할 기준서 문서를 찾을 수 없습니다.")
+
+    for candidate_id, _candidate in selected:
+        delete_indexed_document(candidate_id=UUID(candidate_id), company_id=company_id)
+
+    for candidate_id, _candidate in selected:
+        knowledge_candidates.pop(candidate_id, None)
+        repository.delete_runtime_setting(f"knowledge-document:{candidate_id}")
+    _save_knowledge_candidates()
+    return {"deleted": len(selected), "status": "COMPLETED"}
+
+
 @router.post("/knowledge-candidates/{candidate_id:path}/approve")
 def approve_knowledge_candidate(
     candidate_id: str,
@@ -967,6 +992,7 @@ def _risk_review_payload(risk: Any) -> dict[str, Any]:
         line for line in repository.journal_lines.values()
         if event and line.id in event.journal_line_ids
     ]
+
     if not getattr(risk, "risk_code", "") and lines:
         assign_risk_code(repository, risk, lines)
         repository.save(risk)

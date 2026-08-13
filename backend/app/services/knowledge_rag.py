@@ -175,6 +175,22 @@ def index_document(
     return {"documentId": str(document_id), "chunkCount": len(chunks), "pageCount": len(pages), "embeddingModel": model}
 
 
+def delete_indexed_document(*, candidate_id: UUID, company_id: UUID) -> bool:
+    """Remove one indexed source; the database cascade removes its chunks and embeddings."""
+    try:
+        with engine.begin() as connection:
+            result = connection.execute(
+                text("""
+                    delete from knowledge.document
+                    where candidate_id = :candidate_id and company_id = :company_id
+                """),
+                {"candidate_id": candidate_id, "company_id": company_id},
+            )
+        return result.rowcount > 0
+    except Exception as exc:
+        raise KnowledgeIndexError("기준서 문서와 RAG 인덱스를 삭제하지 못했습니다.") from exc
+
+
 def retrieve_reference_context(
     *, company_id: UUID, query: str, provider: str, api_key: str,
     embedding_model: str | None, limit: int = 4,

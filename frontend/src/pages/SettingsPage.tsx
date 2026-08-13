@@ -1816,6 +1816,25 @@ function KnowledgeSettings({ company }: { company?: Company }) {
       );
     }
   };
+  const deleteSelectedDocuments = async () => {
+    if (!selectedKnowledgeItems.length) return;
+    if (!window.confirm(`선택한 ${selectedKnowledgeItems.length}개 문서를 완전히 삭제하시겠습니까?\n문서 원본과 RAG 인덱스도 함께 삭제됩니다.`)) return;
+    setError("");
+    setMessage("");
+    try {
+      const params = new URLSearchParams({ company_id: company.id });
+      selectedKnowledgeItems.forEach((item) => params.append("candidate_ids", item.id));
+      const response = await api.delete(
+        `/settings/knowledge-sources/local-standards/documents?${params.toString()}`,
+      );
+      setSelectedKnowledgeIds(new Set());
+      setMessage(`${response.data.deleted}개 문서를 완전히 삭제했습니다.`);
+      await candidates.refetch();
+    } catch (caught) {
+      const detail = (caught as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+      setError(detail ?? "문서 삭제에 실패했습니다.");
+    }
+  };
   const reindexDocuments = async () => {
     if (!selectedKnowledgeItems.length) return;
     setError("");
@@ -1933,6 +1952,15 @@ function KnowledgeSettings({ company }: { company?: Company }) {
               >
                 업로드
                 {selectedFiles?.length ? ` (${selectedFiles.length})` : ""}
+              </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<DeleteOutline />}
+                onClick={deleteSelectedDocuments}
+                disabled={!selectedKnowledgeItems.length}
+              >
+                선택 문서 삭제 ({selectedKnowledgeItems.length})
               </Button>
               <Button variant="outlined" onClick={reindexDocuments} disabled={!selectedKnowledgeItems.length}>
                 선택 문서 RAG 인덱스 생성 ({selectedKnowledgeItems.length})

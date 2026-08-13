@@ -356,6 +356,21 @@ class InMemoryRepository:
                 self._db_ready = False
                 self.last_db_error = type(exc).__name__
 
+    def delete_runtime_setting(self, key: str) -> None:
+        with self._lock:
+            self.runtime_settings.pop(key, None)
+            if not self._db_ready:
+                return
+            try:
+                with engine.begin() as connection:
+                    connection.execute(
+                        text("delete from arip_state where collection = :collection and object_id = :object_id"),
+                        {"collection": "RuntimeSetting", "object_id": key},
+                    )
+            except Exception as exc:
+                self._db_ready = False
+                self.last_db_error = type(exc).__name__
+
     def save(self, obj: T) -> T:
         with self._lock:
             stores: dict[type[Any], dict[Any, Any]] = {
