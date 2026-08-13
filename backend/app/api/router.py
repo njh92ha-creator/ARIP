@@ -27,6 +27,7 @@ from app.api.schemas import (
     MaterialityCreate,
     RiskDelete,
     RiskReviewAnswerUpdate,
+    RiskReviewQuestionAssessmentRequest,
     RiskReviewQuestionStatusUpdate,
     RiskReviewCaseDecision,
     RiskReviewExposureUpdate,
@@ -45,6 +46,7 @@ from app.domain.models import (
     RiskMemoryEntry,
     RiskLevel,
     RiskReviewAttachment,
+    RiskReviewQuestionAssessment,
     RiskStatus,
 )
 from app.domain.repository import repository
@@ -71,6 +73,7 @@ from app.services.mapping import propose_mapping
 from app.services.orchestrator import process_journals
 from app.services.ai_risk_analysis import assign_risk_code
 from app.ai.provider import KIFRS_EVENT_ANALYSIS_PROMPT
+from app.services.review_question_assessment import assess_review_question
 from app.services.knowledge_rag import KnowledgeIndexError, delete_indexed_document, index_document
 from app.services.closing_analysis import (
     analyze_closing_analysis_set,
@@ -1111,6 +1114,9 @@ def _review_case_payload(review_case: Any) -> dict[str, Any]:
     payload = encode(review_case)
     payload.pop("source_risk_id", None)
     payload["answers"] = encode(repository.answers_for_review_case(review_case.id))
+    payload["question_assessments"] = encode(
+        repository.question_assessments_for_review_case(review_case.id)
+    )
     payload["question_statuses"] = encode(
         repository.question_statuses_for_review_case(review_case.id)
     )
@@ -1181,6 +1187,44 @@ def delete_risk_review_answer(
     except KeyError as exc:
         raise HTTPException(404, "review answer not found") from exc
     return {"deleted": True}
+
+
+@router.post("/risk-reviews/{review_case_id}/question-assessment")
+def assess_risk_review_question(
+    review_case_id: UUID,
+    payload: RiskReviewQuestionAssessmentRequest,
+) -> Any:
+    review_case = _review_case(review_case_id)
+    answers = [
+        answer.answer
+        for answer in repository.answers_for_review_case(review_case_id)
+        if answer.question == payload.question and answer.answer.strip()
+    ]
+    if not answers:
+        raise HTTPException(422, "저장된 답변이 있어야 AI 검토를 실행할 수 있습니다.")
+    options = _ai_runtime_options()
+    try:
+        assessment = assess_review_question(
+            audit_issues=review_case.package.audit_issues,
+            question=payload.question,
+            answers=answers,
+            provider=options["ai_provider"],
+            model=options["ai_model"],
+            api_key_env=options["ai_key_env"],
+            enabled=options["external_ai_enabled"],
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(502, f"AI 검토에 실패했습니다: {type(exc).__name__}") from exc
+    return encode(
+        repository.save_review_question_assessment(
+            review_case_id,
+            question=payload.question,
+            status=assessment["status"],
+            reason=assessment["reason"],
+        )
+    )
 
 
 @router.put("/risk-reviews/{review_case_id}/question-status")

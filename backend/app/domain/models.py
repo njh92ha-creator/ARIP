@@ -304,6 +304,16 @@ class RiskReviewAnswer:
 
 
 @dataclass(slots=True)
+class RiskReviewQuestionAssessment:
+    review_case_id: UUID
+    question: str
+    status: str
+    reason: str
+    assessed_at: datetime = field(default_factory=utcnow)
+    id: UUID = field(default_factory=uuid4)
+
+
+@dataclass(slots=True)
 class RiskReviewQuestionStatus:
     review_case_id: UUID
     question: str

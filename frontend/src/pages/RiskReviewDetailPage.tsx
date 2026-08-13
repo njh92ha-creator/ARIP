@@ -29,7 +29,7 @@ import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import { Link, useParams } from 'react-router-dom'
-import { api, Company, RiskReviewAnswer, RiskReviewAttachment, RiskReviewCase } from '../api'
+import { api, Company, RiskReviewAnswer, RiskReviewAttachment, RiskReviewCase, RiskReviewQuestionAssessment } from '../api'
 import { RiskReviewSnapshotEvidence } from './RiskReviewSnapshotEvidence'
 
 const primary = '#0056B0'
@@ -77,7 +77,7 @@ function ReadOnlyList({ items, emptyText }: { items?: string[]; emptyText: strin
   return <Stack component="ul" spacing={1} sx={{ pl: 2.5, mb: 0 }}>{items.map((item) => <Typography component="li" key={item} variant="body2" sx={{ lineHeight: 1.7 }}>{item}</Typography>)}</Stack>
 }
 
-function AnswerEditor({ reviewCaseId, cacheKey, question, savedAnswers, questionStatus }: { reviewCaseId: string; cacheKey: string; question: string; savedAnswers: RiskReviewAnswer[]; questionStatus?: 'NOT_REQUIRED' | 'DUPLICATE' }) {
+function AnswerEditor({ reviewCaseId, cacheKey, question, savedAnswers, questionStatus, assessment }: { reviewCaseId: string; cacheKey: string; question: string; savedAnswers: RiskReviewAnswer[]; questionStatus?: 'NOT_REQUIRED' | 'DUPLICATE'; assessment?: RiskReviewQuestionAssessment }) {
   const queryClient = useQueryClient()
   const [answer, setAnswer] = useState('')
   const mutation = useMutation({
@@ -110,13 +110,28 @@ function AnswerEditor({ reviewCaseId, cacheKey, question, savedAnswers, question
       question_statuses: [...current.question_statuses.filter((item) => item.question !== question), saved],
     } : current),
   })
+  const aiReview = useMutation({
+    mutationFn: async () => (await api.post<RiskReviewQuestionAssessment>(
+      `/risk-reviews/${reviewCaseId}/question-assessment`, { question },
+    )).data,
+    onSuccess: (saved) => queryClient.setQueryData<RiskReviewCase>(['risk-review', cacheKey], (current) => current ? {
+      ...current,
+      question_assessments: [...current.question_assessments.filter((item) => item.question !== question), saved],
+    } : current),
+  })
   const closed = Boolean(questionStatus)
+  const assessmentLabel = assessment?.status === 'RESOLVED' ? '해소' : assessment?.status === 'NEEDS_FOLLOW_UP' ? '추가 검토 필요' : assessment?.status === 'NOT_RESOLVED' ? '해소 불가' : ''
+  const assessmentColor = assessment?.status === 'RESOLVED' ? 'success' : assessment?.status === 'NEEDS_FOLLOW_UP' ? 'warning' : 'error'
 
   return <Box sx={{ p: 2, border: `1px solid ${border}`, borderRadius: 2, bgcolor: '#FCFCFD' }}>
     <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.25 }}>
       <Typography fontWeight={700}>{question}</Typography>
       {questionStatus ? <Chip size="small" color={questionStatus === 'NOT_REQUIRED' ? 'default' : 'warning'} label={questionStatus === 'NOT_REQUIRED' ? '중요하지 않음' : '중복'} /> : null}
     </Stack>
+    {assessment && <Alert severity={assessmentColor} sx={{ mb: 1.25 }}>
+      <Typography variant="body2" fontWeight={700}>{assessmentLabel}</Typography>
+      <Typography variant="body2" sx={{ mt: .25 }}>{assessment.reason}</Typography>
+    </Alert>}
     <TextField
       fullWidth
       multiline
@@ -135,10 +150,12 @@ function AnswerEditor({ reviewCaseId, cacheKey, question, savedAnswers, question
       <Stack direction="row" spacing={1}>
       <Button size="small" variant="outlined" disabled={status.isPending || closed} onClick={() => status.mutate('NOT_REQUIRED')}>중요하지 않음</Button>
       <Button size="small" variant="outlined" disabled={status.isPending || closed} onClick={() => status.mutate('DUPLICATE')}>중복</Button>
+      <Button size="small" variant="outlined" disabled={aiReview.isPending || savedAnswers.length === 0} onClick={() => aiReview.mutate()}>{aiReview.isPending ? 'AI 검토 중' : 'AI 검토'}</Button>
       <Button variant="contained" size="small" startIcon={<SaveOutlinedIcon />} disabled={mutation.isPending || closed || !answer.trim()} onClick={() => mutation.mutate(answer)}>
         {mutation.isPending ? '저장 중' : '답변 저장'}
       </Button>
     </Stack>
+    {aiReview.isError ? <Typography color="error" variant="caption" sx={{ display: 'block', mt: 1 }}>{errorMessage(aiReview.error, 'AI 검토에 실패했습니다.')}</Typography> : null}
     </Stack>
     <Stack spacing={1} sx={{ mt: 1.5 }}>
       {savedAnswers.map((saved) => <Box key={saved.id} sx={{ p: 1.5, bgcolor: '#FFFBE6', border: '1px solid #FDE68A', borderRadius: 1.5 }}>
@@ -391,6 +408,7 @@ export function RiskReviewDetailPage() {
   const questions = [...new Set([...(reviewCase.package.expected_questions ?? []), ...reviewCase.answers.map((item) => item.question)])]
   const answersByQuestion = new Map(questions.map((question) => [question, reviewCase.answers.filter((item) => item.question === question)]))
   const statusByQuestion = new Map(reviewCase.question_statuses.map((item) => [item.question, item.status]))
+  const assessmentByQuestion = new Map(reviewCase.question_assessments.map((item) => [item.question, item]))
 
   return <Box>
     <Typography component={Link} to="/events" variant="body2" sx={{ color: primary, textDecoration: 'none', fontWeight: 700 }}>← 검토 목록</Typography>
@@ -455,7 +473,7 @@ export function RiskReviewDetailPage() {
         <SectionTitle action={<Chip label={`${reviewCase.answers.filter((item) => item.answer.trim()).length} / ${questions.length}`} size="small" variant="outlined" />}>검토 질문 및 답변</SectionTitle>
         <Typography color="text.secondary" variant="body2" sx={{ mt: 1.5 }}>각 질문의 답변은 개별적으로 저장됩니다.</Typography>
         <Stack spacing={1.5} sx={{ mt: 2 }}>
-          {questions.length ? questions.map((question) => <AnswerEditor key={question} reviewCaseId={reviewCase.id} cacheKey={riskCode} question={question} savedAnswers={answersByQuestion.get(question) ?? []} questionStatus={statusByQuestion.get(question)} />) : <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>이관된 검토 질문이 없습니다.</Typography>}
+          {questions.length ? questions.map((question) => <AnswerEditor key={question} reviewCaseId={reviewCase.id} cacheKey={riskCode} question={question} savedAnswers={answersByQuestion.get(question) ?? []} questionStatus={statusByQuestion.get(question)} assessment={assessmentByQuestion.get(question)} />) : <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>이관된 검토 질문이 없습니다.</Typography>}
         </Stack>
       </CardContent></Card>
       <AttachmentCard reviewCase={reviewCase} cacheKey={riskCode} />

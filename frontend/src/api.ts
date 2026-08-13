@@ -96,6 +96,7 @@ export interface RiskReviewCase {
   status: string
   transferred_at: string
   answers: RiskReviewAnswer[]
+  question_assessments: RiskReviewQuestionAssessment[]
   question_statuses: RiskReviewQuestionStatus[]
   attachments: RiskReviewAttachment[]
 }
@@ -124,6 +125,14 @@ export interface RiskReviewQuestionStatus {
   question: string
   status: 'NOT_REQUIRED' | 'DUPLICATE'
   created_at: string
+}
+
+export interface RiskReviewQuestionAssessment {
+  id: string
+  question: string
+  status: 'RESOLVED' | 'NEEDS_FOLLOW_UP' | 'NOT_RESOLVED'
+  reason: string
+  assessed_at: string
 }
 
 export interface RiskReviewAttachment {
