@@ -184,6 +184,13 @@ def _attachment_content_disposition(filename: str) -> str:
     )
 
 
+def _reload_current_database_state() -> None:
+    """Use the database as the source of truth for each list/dashboard read."""
+    repository.reload_from_database()
+    if not repository._db_ready:
+        raise HTTPException(503, "database read failed")
+
+
 def _entity(store: dict[UUID, Any], entity_id: UUID, name: str) -> Any:
     entity = store.get(entity_id)
     if not entity:
@@ -303,6 +310,7 @@ def create_company(
 
 @router.get("/companies")
 def list_companies() -> Any:
+    _reload_current_database_state()
     return encode(list(repository.companies.values()))
 
 
@@ -951,6 +959,7 @@ def get_job(job_id: str) -> Any:
 
 @router.get("/dashboard")
 def dashboard(company_id: UUID) -> Any:
+    _reload_current_database_state()
     risks = [risk for risk in repository.risks.values() if risk.company_id == company_id]
     events = [event for event in repository.events.values() if event.company_id == company_id]
     return {
@@ -968,6 +977,7 @@ def dashboard(company_id: UUID) -> Any:
 
 @router.get("/risks")
 def list_risks(company_id: UUID) -> Any:
+    _reload_current_database_state()
     return encode(
         [
             _risk_review_payload(risk)
@@ -1070,6 +1080,7 @@ def _review_case_summary(review_case: Any) -> dict[str, Any]:
 
 @router.get("/risk-reviews")
 def list_risk_reviews(company_id: UUID, status: str | None = None) -> Any:
+    _reload_current_database_state()
     requested_status = status.upper() if status else None
     if requested_status not in {None, "OPEN", "CLEARED"}:
         raise HTTPException(422, "status must be OPEN or CLEARED")
@@ -1086,6 +1097,7 @@ def list_risk_reviews(company_id: UUID, status: str | None = None) -> Any:
 @router.get("/settings/risk-management")
 def list_risk_management(company_id: UUID) -> Any:
     """Administrative view of every source analysis, including PASS and transferred risks."""
+    _reload_current_database_state()
     return encode(
         [
             _risk_review_payload(risk)
