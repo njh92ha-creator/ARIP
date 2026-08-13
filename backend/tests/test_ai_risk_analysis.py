@@ -17,7 +17,13 @@ from app.services.ai_risk_analysis import (
     build_event_facts,
     risk_from_ai_analysis,
 )
-from app.ai.provider import AiUnavailableError, NvidiaAnalysisProvider, parse_nvidia_json
+from app.ai.provider import (
+    AiUnavailableError,
+    NvidiaAnalysisProvider,
+    OpenAIAnalysisProvider,
+    filter_official_standards_evidence,
+    parse_nvidia_json,
+)
 from app.services.orchestrator import process_journals
 
 
@@ -37,6 +43,56 @@ class AiRiskPackageTest(unittest.TestCase):
 
 
 class NvidiaTimeoutConfigurationTest(unittest.TestCase):
+    def test_openai_uses_official_domain_web_search_and_keeps_returned_url(self) -> None:
+        captured: dict[str, object] = {}
+        official_url = "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-9-financial-instruments/"
+        payload = {
+            "triageDecision": "REVIEW_REQUIRED", "triageReason": "A concrete issue exists.",
+            "riskSummary": "Review required.", "issueTypes": ["Initial measurement"],
+            "relatedAccounts": ["Deposit"], "voucherCount": 1, "eventInference": "Deposit paid.",
+            "auditIssues": ["Initial fair value requires review."], "expectedQuestions": [],
+            "evidenceChecklist": [], "responseGuidance": [], "referenceIds": [], "missingFacts": [],
+            "uncertainty": "MEDIUM", "ledgerEvidence": [],
+            "standardsEvidence": [
+                {"source": "K-IFRS", "title": "IFRS 9", "paragraph": "5.1.1", "excerpt": "Initial fair value.", "url": official_url},
+                {"source": "IFRIC", "title": "Not searched", "paragraph": "", "excerpt": "", "url": "https://www.ifrs.org/not-searched"},
+            ],
+        }
+
+        class FakeResponse:
+            output_text = json.dumps(payload)
+            def model_dump(self):
+                return {"output": [{"type": "web_search_call", "action": {"sources": [{"url": official_url}]}}]}
+
+        class FakeResponses:
+            def create(self, **kwargs):
+                captured.update(kwargs)
+                return FakeResponse()
+
+        class FakeOpenAI:
+            def __init__(self, **kwargs):
+                self.responses = FakeResponses()
+
+        original = sys.modules.get("openai")
+        sys.modules["openai"] = SimpleNamespace(OpenAI=FakeOpenAI)
+        previous_key = os.environ.get("OPENAI_TEST_KEY")
+        os.environ["OPENAI_TEST_KEY"] = "test-key"
+        try:
+            result = OpenAIAnalysisProvider(model="test-model", api_key_env="OPENAI_TEST_KEY").analyze({}, [])
+        finally:
+            if original is None:
+                del sys.modules["openai"]
+            else:
+                sys.modules["openai"] = original
+            if previous_key is None:
+                del os.environ["OPENAI_TEST_KEY"]
+            else:
+                os.environ["OPENAI_TEST_KEY"] = previous_key
+
+        self.assertEqual(captured["tools"][0]["filters"]["allowed_domains"], ["ifrs.org", "kasb.or.kr"])
+        self.assertEqual(captured["include"], ["web_search_call.action.sources"])
+        self.assertEqual(result["standardsEvidence"], [payload["standardsEvidence"][0]])
+
     def test_nvidia_json_parser_accepts_a_code_fenced_json_object(self) -> None:
         parsed = parse_nvidia_json('```json\n{"riskSummary":"검토", "issueTypes":[]}\n```')
 
@@ -91,6 +147,16 @@ class NvidiaTimeoutConfigurationTest(unittest.TestCase):
 
 
 class AiRiskFactsTest(unittest.TestCase):
+    def test_only_search_returned_official_urls_are_kept_as_standards_evidence(self) -> None:
+        searched = {"https://www.ifrs.org/issued-standards/list-of-standards/ifrs-9-financial-instruments/"}
+        evidence = [
+            {"source": "K-IFRS", "title": "IFRS 9", "url": next(iter(searched))},
+            {"source": "IFRIC", "title": "Unverified", "url": "https://www.ifrs.org/unverified"},
+            {"source": "KASB_QA", "title": "Other site", "url": "https://example.com/item"},
+        ]
+
+        self.assertEqual(filter_official_standards_evidence(evidence, searched), [evidence[0]])
+
     def setUp(self) -> None:
         self.company_id = uuid4()
         self.event = AccountingEvent(

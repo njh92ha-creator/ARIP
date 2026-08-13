@@ -4,6 +4,7 @@ import json
 import os
 from dataclasses import dataclass
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 from app.core.config import settings
 
@@ -46,8 +47,9 @@ KIFRS_EVENT_ANALYSIS_PROMPT = """# Role
    - REVIEW_REQUIRED 또는 INSUFFICIENT_FACTS인 경우에만 evidenceChecklist에 검토질문의 근거를 확인할 수 있는 적격 증빙을 작성한다.
 7. 기준서 검색 근거
    - REVIEW_REQUIRED 또는 INSUFFICIENT_FACTS인 경우에만 standardsEvidence에 회계감사 이슈 도출에 사용된 근거를 작성한다.
-   - K-IFRS 근거에는 문단 번호와 본문 내용을 포함한다.
-   - 한국회계기준원 정규 질의 문답과 IFRIC 근거에는 URL을 포함한다.
+   - 공식 웹 검색으로 이번 요청에서 확인된 자료만 사용한다. K-IFRS, 한국회계기준원 질의회신, IFRIC 중 거래 쟁점과 직접 관련된 자료를 출처별 최대 2건까지 작성할 수 있다.
+   - K-IFRS 근거에는 실제 문단 번호와 짧은 발췌를, 한국회계기준원 질의 문답과 IFRIC 근거에는 실제 URL과 짧은 발췌를 작성한다.
+   - 검색 결과가 거래 쟁점과 직접 관련 없으면 넣지 마라. 한 종류의 근거를 찾았다고 검색을 종료하거나 다른 종류의 근거를 임의로 만들지 마라.
 8. 원장근거
    - REVIEW_REQUIRED 또는 INSUFFICIENT_FACTS인 경우에만 ledgerEvidence에 eventFacts.journalLines의 해당 회계전표 내역을 요약 표시한다. 입력에 없는 전표 사실을 추가하지 마라.
 
@@ -59,6 +61,7 @@ KIFRS_EVENT_ANALYSIS_PROMPT = """# Role
 - 근거로써 확인되는 한국회계기준원 정규 질의 문답 및 URL은 임의 생성할 수 없다.
 - 근거로써 확인되는 IFRIC 및 URL은 임의 생성할 수 없다.
 - 확인할 수 없는 기준서·질의문답·IFRIC 근거는 standardsEvidence에 넣지 마라.
+- 이번 공식 웹 검색에서 확인되지 않은 제목, 문단 번호, 본문, URL은 standardsEvidence에 넣지 마라.
 - 오류를 확정하지 마라.
 - 마크다운, 코드 펜스, 설명문을 덧붙이지 말고 응답 스키마에 맞는 JSON 객체 하나만 반환하라."""
 
@@ -143,6 +146,58 @@ class AiUnavailableError(RuntimeError):
     pass
 
 
+OFFICIAL_STANDARDS_DOMAINS = {"ifrs.org", "kasb.or.kr"}
+
+
+def _is_official_standards_url(value: Any) -> bool:
+    parsed = urlparse(str(value or "").strip())
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme == "https" and any(
+        host == domain or host.endswith(f".{domain}")
+        for domain in OFFICIAL_STANDARDS_DOMAINS
+    )
+
+
+def _official_web_source_urls(response: Any) -> set[str]:
+    """Collect only URLs returned by the Responses web-search tool."""
+    try:
+        payload = response.model_dump() if hasattr(response, "model_dump") else response
+    except Exception:
+        payload = response
+    urls: set[str] = set()
+
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key == "url" and _is_official_standards_url(item):
+                    urls.add(str(item).strip())
+                else:
+                    walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(payload)
+    return urls
+
+
+def filter_official_standards_evidence(
+    evidence: list[dict[str, Any]], source_urls: set[str]
+) -> list[dict[str, Any]]:
+    """Keep only evidence URLs actually returned by official-domain search."""
+    approved: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in evidence:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url", "")).strip()
+        if url not in source_urls or url in seen:
+            continue
+        seen.add(url)
+        approved.append(item)
+    return approved
+
+
 def parse_nvidia_json(content: str) -> dict[str, Any]:
     """Extract the single JSON object from a NIM response without accepting prose."""
     candidate = content.strip()
@@ -179,6 +234,15 @@ class OpenAIAnalysisProvider:
         client = OpenAI(api_key=api_key)
         response = client.responses.create(
             model=self.model,
+            tools=[
+                {
+                    "type": "web_search",
+                    "search_context_size": "medium",
+                    "filters": {"allowed_domains": sorted(OFFICIAL_STANDARDS_DOMAINS)},
+                }
+            ],
+            tool_choice="auto",
+            include=["web_search_call.action.sources"],
             input=[
                 {"role": "system", "content": KIFRS_EVENT_ANALYSIS_PROMPT},
                 {
@@ -191,6 +255,7 @@ class OpenAIAnalysisProvider:
                                 "doNotConcludeError": True,
                                 "issueFirstPolicy": "Follow the Korean system prompt. Analyze transaction-specific accounting hypotheses from the transaction facts. Do not conclude that an error exists; list facts required to confirm or reject each hypothesis.",
                                 "referenceIdsBehavior": "RAG retrieval is disabled for this analysis. Return an empty referenceIds array.",
+                                "standardsSearch": "Use web search only for official IFRS Foundation and Korean Accounting Standards Board materials relevant to the concrete audit issue. Do not use an unrelated result.",
                             },
                         },
                         ensure_ascii=False,
@@ -207,6 +272,10 @@ class OpenAIAnalysisProvider:
             },
         )
         parsed = json.loads(response.output_text)
+        parsed["standardsEvidence"] = filter_official_standards_evidence(
+            list(parsed.get("standardsEvidence", [])),
+            _official_web_source_urls(response),
+        )
         unknown = set(parsed["referenceIds"]) - {
             str(reference["id"]) for reference in references
         }
