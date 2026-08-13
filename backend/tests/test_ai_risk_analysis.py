@@ -214,6 +214,28 @@ class AiRiskFactsTest(unittest.TestCase):
         self.assertEqual(risk.route.value, "LLM_KIFRS")
         self.assertEqual(risk.package.generated_by, "AI_KIFRS_ANALYSIS")
 
+    def test_no_action_analysis_does_not_create_a_risk(self) -> None:
+        analysis = {
+            "triageDecision": "NO_ACTION",
+            "triageReason": "Normal capital contribution entry without a concrete accounting issue.",
+            "riskSummary": "",
+            "issueTypes": [],
+            "relatedAccounts": ["Cash", "Share capital"],
+            "voucherCount": 1,
+            "eventInference": "",
+            "auditIssues": [],
+            "expectedQuestions": [],
+            "evidenceChecklist": [],
+            "responseGuidance": [],
+            "standardsEvidence": [],
+            "ledgerEvidence": [],
+            "referenceIds": [],
+            "missingFacts": [],
+            "uncertainty": "LOW",
+        }
+
+        self.assertIsNone(risk_from_ai_analysis(self.event, None, analysis, []))
+
     def test_ai_analysis_persists_structured_audit_output(self) -> None:
         analysis = {
             "riskSummary": "증자 거래로 추정되며 자본금과 주식발행초과금 분류의 근거 확인이 필요합니다.",
@@ -345,6 +367,19 @@ class UnavailableAnalysisProvider:
         raise AiUnavailableError("test provider unavailable")
 
 
+class NoActionAnalysisProvider:
+    def analyze(self, event_facts, references):
+        return {
+            "triageDecision": "NO_ACTION",
+            "triageReason": "Normal capital contribution without a concrete accounting issue.",
+            "riskSummary": "", "issueTypes": [], "relatedAccounts": ["현금", "자본금"],
+            "voucherCount": 1, "eventInference": "", "auditIssues": [],
+            "expectedQuestions": [], "evidenceChecklist": [], "responseGuidance": [],
+            "standardsEvidence": [], "ledgerEvidence": [], "referenceIds": [],
+            "missingFacts": [], "uncertainty": "LOW",
+        }
+
+
 class BrokenAnalysisProvider:
     def analyze(self, event_facts, references):
         raise RuntimeError("test provider failure")
@@ -375,6 +410,25 @@ class TimeoutThenSuccessProvider:
 
 
 class AiOrchestrationTest(unittest.TestCase):
+    def test_no_action_is_recorded_without_creating_a_risk(self) -> None:
+        company_id = uuid4()
+        line = JournalLine(
+            company_id=company_id, source_row=1, document_number="JE-NO-ACTION",
+            posting_date=date(2025, 6, 4), account_code="111000",
+            account_name="현금", local_amount=Decimal("500000000"),
+            debit_credit_indicator="D", fiscal_year=2025, fiscal_period=6,
+            line_text="법인설립 유상증자 납입",
+        )
+        repo = FakeRepository()
+
+        result = process_journals(repo, [line], actor="test", analysis_provider=NoActionAnalysisProvider())
+
+        self.assertEqual(result["events"], 1)
+        self.assertEqual(result["risks"], 0)
+        self.assertEqual(repo.risks, {})
+        stored = next(iter(repo.analysis_event_results.values()))
+        self.assertEqual(stored.status, "NO_ISSUE")
+
     def test_existing_ai_risk_is_refreshed_when_analysis_is_rerun(self) -> None:
         company_id = uuid4()
         line = JournalLine(

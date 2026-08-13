@@ -155,6 +155,8 @@ def risk_from_ai_analysis(
     analysis: dict[str, Any],
     approved_references: list[dict[str, str]],
 ) -> Risk | None:
+    if str(analysis.get("triageDecision", "")).strip().upper() == "NO_ACTION":
+        return None
     issue_types = [str(item).strip() for item in analysis.get("issueTypes", []) if str(item).strip()]
     summary = str(analysis.get("riskSummary", "")).strip()
     if not issue_types or not summary:
