@@ -9,10 +9,7 @@ from typing import Any
 
 from app.domain.models import Risk, RiskReviewCase, RiskReviewSemanticEmbedding
 from app.services.knowledge_rag import embed_texts
-from app.services.risk_auto_pass import _AMOUNT_PATTERN, semantic_source_text
-
-
-SIMILARITY_THRESHOLD = 0.80
+SIMILARITY_THRESHOLD = 0.70
 MAX_SIMILAR_CASES = 3
 
 
@@ -28,17 +25,8 @@ def _cosine_similarity(left: list[float], right: list[float]) -> float:
 
 
 def review_case_source_text(repo: Any, review_case: RiskReviewCase) -> str:
-    """Build comparison text from the review record, excluding attachments and amounts."""
-    package = review_case.package
-    answers = repo.answers_for_review_case(review_case.id)
-    sections = [review_case.title, review_case.statement, package.summary, *package.issue_types,
-                package.event_inference, *package.audit_issues, *package.related_accounts,
-                *(f"{answer.question}\n{answer.answer}" for answer in answers if answer.question or answer.answer)]
-    return "\n".join(
-        _AMOUNT_PATTERN.sub("", str(item)).strip()
-        for item in sections
-        if _AMOUNT_PATTERN.sub("", str(item)).strip()
-    )
+    """Use only the transferred risk's overall judgment for semantic comparison."""
+    return str(review_case.package.summary or "").strip()
 
 
 def _embedding_for_review_case(repo: Any, review_case: RiskReviewCase, source_text: str, *, provider: str, api_key: str, embedding_model: str) -> RiskReviewSemanticEmbedding:
@@ -55,7 +43,7 @@ def _embedding_for_review_case(repo: Any, review_case: RiskReviewCase, source_te
 def find_cleared_review_similarities(repo: Any, risk: Risk, lines: list[Any], *, ai_provider: str, ai_key_env: str | None, embedding_model: str | None) -> list[dict[str, Any]]:
     """Return cleared review cases with a semantic link. Never blocks analysis."""
     api_key = os.getenv(ai_key_env or "OPENAI_API_KEY")
-    target_text = semantic_source_text(risk, lines)
+    target_text = str(risk.package.summary or "").strip()
     if not api_key or not target_text:
         return []
     cleared_cases = [item for item in repo.review_cases_for_company(risk.company_id) if item.status == "CLEARED" and item.source_risk_id != risk.id]
