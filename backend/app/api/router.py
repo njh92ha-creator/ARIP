@@ -1235,9 +1235,14 @@ def assess_risk_review_question(
 @router.post("/risk-reviews/{review_case_id}/overall-assessment")
 def assess_risk_review_overall(review_case_id: UUID) -> Any:
     review_case = _review_case(review_case_id)
+    excluded_questions = {
+        item.question
+        for item in repository.question_statuses_for_review_case(review_case_id)
+        if item.status in {"NOT_REQUIRED", "DUPLICATE"}
+    }
     answers_by_question: dict[str, list[str]] = {}
     for answer in repository.answers_for_review_case(review_case_id):
-        if answer.answer.strip():
+        if answer.question not in excluded_questions and answer.answer.strip():
             answers_by_question.setdefault(answer.question, []).append(answer.answer)
     if not answers_by_question:
         raise HTTPException(422, "저장된 답변이 있어야 종합 AI 검토를 실행할 수 있습니다.")
@@ -1246,7 +1251,10 @@ def assess_risk_review_overall(review_case_id: UUID) -> Any:
         assessment = assess_review_overall(
             audit_issues=review_case.package.audit_issues,
             questions=list(dict.fromkeys([
-                *(review_case.package.expected_questions or []),
+                question
+                for question in (review_case.package.expected_questions or [])
+                if question not in excluded_questions
+            ] + [
                 *answers_by_question.keys(),
             ])),
             answers_by_question=answers_by_question,
