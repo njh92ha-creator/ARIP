@@ -341,12 +341,31 @@ export function RiskReviewDetailPage() {
     onSuccess: (updated) => queryClient.setQueryData<RiskReviewCase>(['risk-review', riskCode], (current) => current ? { ...current, severity: updated.severity } : updated),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: ['risk-reviews'] }),
   })
+  const clearReview = useMutation({
+    mutationFn: async () => {
+      if (!reviewCaseId) throw new Error('review case is not loaded')
+      return (await api.post<RiskReviewCase>(`/risk-reviews/${reviewCaseId}/clear`)).data
+    },
+    onMutate: async () => {
+      setControlError(null)
+      await queryClient.cancelQueries({ queryKey: ['risk-review', riskCode] })
+      const previous = queryClient.getQueryData<RiskReviewCase>(['risk-review', riskCode])
+      queryClient.setQueryData<RiskReviewCase>(['risk-review', riskCode], (current) => current ? { ...current, status: current.status === 'CLEARED' ? 'OPEN' : 'CLEARED' } : current)
+      return { previous }
+    },
+    onError: (mutationError, _, context) => {
+      if (context?.previous) queryClient.setQueryData(['risk-review', riskCode], context.previous)
+      setControlError(errorMessage(mutationError, '클리어 상태를 변경하지 못했습니다.'))
+    },
+    onSuccess: (updated) => queryClient.setQueryData<RiskReviewCase>(['risk-review', riskCode], updated),
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: ['risk-reviews'] }),
+  })
   useEffect(() => {
     if (!reviewCase) return
     setExposureAmount(reviewCase.exposure_amount ? new Intl.NumberFormat('ko-KR').format(reviewCase.exposure_amount) : '')
     setExposureBasis(reviewCase.exposure_basis || '')
   }, [reviewCase?.id, reviewCase?.exposure_amount, reviewCase?.exposure_basis])
-  const controlsPending = decision.isPending || severity.isPending
+  const controlsPending = decision.isPending || severity.isPending || clearReview.isPending
   const exposure = useMutation({
     mutationFn: async () => {
       if (!reviewCaseId) throw new Error('review case is not loaded')
@@ -382,6 +401,15 @@ export function RiskReviewDetailPage() {
         <Stack direction="row" spacing={1} sx={{ mt: 1.25 }}><Chip label={reviewCase.status} size="small" /><Chip label={`이관 ${formatDate(reviewCase.transferred_at)}`} size="small" variant="outlined" /></Stack>
       </Box>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ minWidth: { sm: 360 } }}>
+        <Button
+          variant={reviewCase.status === 'CLEARED' ? 'outlined' : 'contained'}
+          color={reviewCase.status === 'CLEARED' ? 'inherit' : 'success'}
+          disabled={controlsPending}
+          onClick={() => clearReview.mutate()}
+          sx={{ whiteSpace: 'nowrap' }}
+        >
+          {clearReview.isPending ? '처리 중' : reviewCase.status === 'CLEARED' ? '클리어 취소' : '클리어'}
+        </Button>
         <FormControl fullWidth size="small">
           <InputLabel id="review-decision-label">검토 분류</InputLabel>
           <Select

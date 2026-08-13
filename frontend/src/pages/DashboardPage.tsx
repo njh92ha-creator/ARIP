@@ -33,7 +33,7 @@ function ExposureBar({ label, amount, total, color }: { label: string; amount: n
 export function DashboardPage() {
   const companies = useQuery({ queryKey: ['companies'], queryFn: async () => (await api.get<Company[]>('/companies')).data })
   const company = companies.data?.[0]
-  const reviews = useQuery({ queryKey: ['risk-reviews', company?.id], enabled: Boolean(company), queryFn: async () => (await api.get<RiskReviewSummary[]>('/risk-reviews', { params: { company_id: company!.id } })).data })
+  const reviews = useQuery({ queryKey: ['risk-reviews', company?.id, 'OPEN'], enabled: Boolean(company), queryFn: async () => (await api.get<RiskReviewSummary[]>('/risk-reviews', { params: { company_id: company!.id, status: 'OPEN' } })).data })
   if (!companies.isPending && !company) return <Alert severity="info">먼저 설정에서 회사를 등록해 주세요.</Alert>
   if (companies.isPending || reviews.isPending) return <Box sx={{ py: 8, textAlign: 'center' }}><CircularProgress /></Box>
   if (reviews.isError) return <Alert severity="error">리스크 검토 데이터를 불러오지 못했습니다.</Alert>

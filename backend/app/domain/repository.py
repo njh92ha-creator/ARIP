@@ -1028,6 +1028,15 @@ class InMemoryRepository:
             review_case.exposure_basis = exposure_basis
             return self.save(review_case)
 
+    def toggle_review_case_clear(self, review_case_id: UUID) -> RiskReviewCase:
+        with self._lock:
+            self._ensure_review_persistence()
+            review_case = self.get_review_case(review_case_id)
+            if review_case is None:
+                raise KeyError(review_case_id)
+            review_case.status = "OPEN" if review_case.status == "CLEARED" else "CLEARED"
+            return self.save(review_case)
+
     def attachments_for_review_case(self, review_case_id: UUID) -> list[RiskReviewAttachment]:
         with self._lock:
             if self._db_ready:

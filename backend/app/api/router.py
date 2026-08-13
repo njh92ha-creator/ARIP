@@ -1069,12 +1069,16 @@ def _review_case_summary(review_case: Any) -> dict[str, Any]:
 
 
 @router.get("/risk-reviews")
-def list_risk_reviews(company_id: UUID) -> Any:
+def list_risk_reviews(company_id: UUID, status: str | None = None) -> Any:
+    requested_status = status.upper() if status else None
+    if requested_status not in {None, "OPEN", "CLEARED"}:
+        raise HTTPException(422, "status must be OPEN or CLEARED")
     return encode(
         [
             _review_case_summary(review_case)
             for review_case in repository.review_cases_for_company(company_id)
             if review_case.review_decision != "PASS"
+            and (requested_status is None or review_case.status == requested_status)
         ]
     )
 
@@ -1225,6 +1229,15 @@ def set_risk_review_case_exposure(
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    return _review_case_payload(review_case)
+
+
+@router.post("/risk-reviews/{review_case_id}/clear")
+def toggle_risk_review_case_clear(review_case_id: UUID) -> Any:
+    try:
+        review_case = repository.toggle_review_case_clear(review_case_id)
+    except KeyError as exc:
+        raise HTTPException(404, "risk review case not found") from exc
     return _review_case_payload(review_case)
 
 
