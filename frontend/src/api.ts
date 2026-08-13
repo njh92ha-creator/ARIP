@@ -51,6 +51,7 @@ export interface Risk {
     event_inference?: string
     audit_issues?: string[]
     issue_types?: string[]
+    review_similarity_cases?: Array<{ riskCode: string; title: string; reviewDecision: 'CHECK' | 'PENDING' | 'PASS'; severity: 'HIGH' | 'MEDIUM' | 'LOW'; similarity: number }>
     standards_evidence?: Array<{
       source: 'K-IFRS' | 'KASB_QA' | 'IFRIC'
       title: string

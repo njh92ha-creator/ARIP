@@ -209,6 +209,7 @@ class RiskPackage:
     standards_evidence: list[dict[str, str]] = field(default_factory=list)
     ledger_evidence: list[dict[str, str]] = field(default_factory=list)
     issue_types: list[str] = field(default_factory=list)
+    review_similarity_cases: list[dict[str, Any]] = field(default_factory=list)
     version: int = 1
     id: UUID = field(default_factory=uuid4)
 
@@ -277,6 +278,18 @@ class RiskReviewCase:
     cross_finding_ids: list[UUID] = field(default_factory=list)
     status: str = "OPEN"
     transferred_at: datetime = field(default_factory=utcnow)
+    id: UUID = field(default_factory=uuid4)
+
+
+@dataclass(slots=True)
+class RiskReviewSemanticEmbedding:
+    """Private semantic vector for a cleared review case."""
+
+    review_case_id: UUID
+    company_id: UUID
+    content_hash: str
+    embedding_model: str
+    embedding: list[float]
     id: UUID = field(default_factory=uuid4)
 
 

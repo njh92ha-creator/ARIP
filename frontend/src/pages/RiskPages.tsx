@@ -120,6 +120,7 @@ export function RiskDetailPage() {
   const pkg = { ...risk.package, ledger_evidence: risk.package.ledger_evidence?.filter(() => false) ?? [] }
   const lines = risk.journalLines ?? []
   const findings = risk.crossFindings ?? []
+  const similarReviewCases = pkg?.review_similarity_cases ?? []
   return <Box>
     <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} sx={{ mb: 3 }}>
       <Box><Typography variant="h4">{risk.title}</Typography><Typography sx={{ ...labelSx, mt: .5 }}>리스크 ID · {risk.risk_code || '-'}</Typography><Stack direction="row" spacing={1} sx={{ mt: 1.25 }}><SeverityPill value={risk.severity ?? risk.level} /><Chip label={risk.status} size="small" /><Chip label={risk.route} size="small" /></Stack></Box>
@@ -127,6 +128,7 @@ export function RiskDetailPage() {
     <Stack spacing={3}>
       <RiskReviewDecisionCard risk={risk} />
       <AnalysisInput lines={lines} event={risk.event} pkg={pkg} />
+      {similarReviewCases.length ? <Card sx={cardSx}><CardContent sx={{ p: 2.5 }}><SectionTitle>교차 분석 결과</SectionTitle><Stack spacing={1.25} sx={{ mt: 2 }}>{similarReviewCases.map((reviewCase) => <Alert key={reviewCase.riskCode} severity="info"><Typography fontWeight={700}>유사 클리어 검토 사례 · {Math.round(reviewCase.similarity * 100)}%</Typography><Typography component={Link} to={`/risk-reviews/${encodeURIComponent(reviewCase.riskCode)}`} sx={{ display: 'block', mt: .5, color: primary, fontWeight: 700, textDecoration: 'none' }}>{reviewCase.riskCode} · {reviewCase.title}</Typography><Typography variant="body2" sx={{ mt: .5 }}>검토 분류 {reviewCase.reviewDecision} · 심각도 {reviewCase.severity}</Typography></Alert>)}</Stack></CardContent></Card> : null}
       <Card sx={cardSx}><CardContent sx={{ p: 2.5 }}><SectionTitle>분석 결과</SectionTitle>
         <Typography sx={{ ...labelSx, mt: 2 }}>종합 판단</Typography>
         <Typography sx={{ mt: .5, color: 'text.secondary', lineHeight: 1.7 }}>{pkg?.summary || risk.statement}</Typography>

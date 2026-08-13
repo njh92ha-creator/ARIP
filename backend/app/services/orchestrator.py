@@ -14,6 +14,7 @@ from app.services.ai_risk_analysis import (
 )
 from app.services.event_engine import cluster_journals, construct_event
 from app.services.risk_auto_pass import maybe_auto_pass_risk
+from app.services.risk_review_similarity import find_cleared_review_similarities
 
 
 logger = logging.getLogger(__name__)
@@ -224,6 +225,11 @@ def process_journals(
             risk.closing_analysis_set_id = event.closing_analysis_set_id
             risk.cross_finding_ids = []
             risk.package.cross_finding_ids = []
+            repo.save(risk)
+            risk.package.review_similarity_cases = find_cleared_review_similarities(
+                repo, risk, cluster, ai_provider=ai_provider,
+                ai_key_env=ai_key_env, embedding_model=embedding_model,
+            )
             repo.save(risk)
             # This auxiliary path can only set PASS after amount-free semantic
             # comparison against 10 prior human-classified cases.  It never assigns

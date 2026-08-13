@@ -28,6 +28,7 @@ from .models import (
     RiskReviewAnswer,
     RiskReviewAttachment,
     RiskReviewCase,
+    RiskReviewSemanticEmbedding,
     RiskReviewQuestionStatus,
     RiskMemoryEntry,
     SettlementBalance,
@@ -59,6 +60,7 @@ def hydrate_legacy_object(obj: Any) -> None:
             "standards_evidence": [],
             "ledger_evidence": [],
             "issue_types": [],
+            "review_similarity_cases": [],
         }
         for field_name, default in defaults.items():
             if not hasattr(package, field_name):
@@ -149,6 +151,7 @@ class InMemoryRepository:
         self.risks: dict[UUID, Risk] = {}
         self.risk_semantic_embeddings: dict[UUID, RiskSemanticEmbedding] = {}
         self.risk_review_cases: dict[UUID, RiskReviewCase] = {}
+        self.risk_review_semantic_embeddings: dict[UUID, RiskReviewSemanticEmbedding] = {}
         self.risk_review_answers: dict[UUID, RiskReviewAnswer] = {}
         self.risk_review_question_statuses: dict[UUID, RiskReviewQuestionStatus] = {}
         self.risk_review_attachments: dict[UUID, RiskReviewAttachment] = {}
@@ -237,6 +240,7 @@ class InMemoryRepository:
                         "Risk": "risks",
                         "RiskSemanticEmbedding": "risk_semantic_embeddings",
                         "RiskReviewCase": "risk_review_cases",
+                        "RiskReviewSemanticEmbedding": "risk_review_semantic_embeddings",
                         "RiskReviewAnswer": "risk_review_answers",
                         "RiskReviewQuestionStatus": "risk_review_question_statuses",
                         "RiskReviewAttachment": "risk_review_attachments",
@@ -280,6 +284,7 @@ class InMemoryRepository:
             self.risks.clear()
             self.risk_semantic_embeddings.clear()
             self.risk_review_cases.clear()
+            self.risk_review_semantic_embeddings.clear()
             self.risk_review_answers.clear()
             self.risk_review_question_statuses.clear()
             self.risk_review_attachments.clear()
@@ -387,6 +392,7 @@ class InMemoryRepository:
                 Risk: self.risks,
                 RiskSemanticEmbedding: self.risk_semantic_embeddings,
                 RiskReviewCase: self.risk_review_cases,
+                RiskReviewSemanticEmbedding: self.risk_review_semantic_embeddings,
                 RiskReviewAnswer: self.risk_review_answers,
                 RiskReviewQuestionStatus: self.risk_review_question_statuses,
                 RiskReviewAttachment: self.risk_review_attachments,
