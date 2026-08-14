@@ -408,8 +408,10 @@ class InMemoryRepository:
 
     def get_runtime_setting(self, key: str, default: Any = None) -> Any:
         with self._lock:
+            if key in self.runtime_settings:
+                return self.runtime_settings[key]
             if not self._db_ready:
-                return self.runtime_settings.get(key, default)
+                return default
             try:
                 with engine.connect() as connection:
                     payload = connection.execute(

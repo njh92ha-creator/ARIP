@@ -59,7 +59,6 @@ from app.domain.models import (
     RiskReviewCase,
     RiskReviewQuestionAssessment,
     RiskStatus,
-    SettlementBalance,
     UserAccount,
 )
 from app.domain.repository import repository
@@ -146,9 +145,7 @@ def _save_runtime_settings() -> None:
 
 def _ai_runtime_options() -> dict[str, Any]:
     """Return non-secret AI execution controls saved from the Settings screen."""
-    stored = repository.get_runtime_setting("global", runtime_settings)
-    settings = stored if isinstance(stored, dict) else runtime_settings
-    connection = settings.get("aiConnection", {})
+    connection = runtime_settings.get("aiConnection", {})
     secret_reference = str(connection.get("secretReference") or "env:OPENAI_API_KEY")
     return {
         "external_ai_enabled": bool(connection.get("enabled")),
@@ -168,11 +165,6 @@ jobs: dict[str, dict[str, Any]] = {}
 
 def _save_knowledge_candidates() -> None:
     repository.save_runtime_setting("knowledge-candidates", knowledge_candidates)
-
-
-def _current_knowledge_candidates() -> dict[str, dict[str, Any]]:
-    stored = repository.get_runtime_setting("knowledge-candidates", knowledge_candidates)
-    return stored if isinstance(stored, dict) else knowledge_candidates
 
 
 def _index_knowledge_candidate(
@@ -218,30 +210,31 @@ def _reload_current_database_state() -> None:
 
 def _database_collection(collection: str, fallback: dict[UUID, Any]) -> list[Any]:
     """Read a single current collection instead of restoring all application state."""
-    if not repository._db_ready:
-        raise HTTPException(503, "database read failed")
-    try:
-        return repository.database_state_objects(collection)
-    except RuntimeError as exc:
-        raise HTTPException(503, "database read failed") from exc
+    if repository._db_ready:
+        try:
+            return repository.database_state_objects(collection)
+        except RuntimeError as exc:
+            raise HTTPException(503, "database read failed") from exc
+    return list(fallback.values())
 
 
 def _database_object(collection: str, object_id: UUID, fallback: dict[UUID, Any]) -> Any | None:
-    if not repository._db_ready:
-        raise HTTPException(503, "database read failed")
-    try:
-        return repository.database_state_object(collection, object_id)
-    except RuntimeError as exc:
-        raise HTTPException(503, "database read failed") from exc
+    if repository._db_ready:
+        try:
+            return repository.database_state_object(collection, object_id)
+        except RuntimeError as exc:
+            raise HTTPException(503, "database read failed") from exc
+    return fallback.get(object_id)
 
 
 def _database_risk_memory() -> dict[UUID, list[RiskMemoryEntry]]:
-    if not repository._db_ready:
-        raise HTTPException(503, "database read failed")
-    try:
-        entries = repository.database_log_entries("risk_memory")
-    except RuntimeError as exc:
-        raise HTTPException(503, "database read failed") from exc
+    if repository._db_ready:
+        try:
+            entries = repository.database_log_entries("risk_memory")
+        except RuntimeError as exc:
+            raise HTTPException(503, "database read failed") from exc
+    else:
+        return repository.risk_memory
     grouped: dict[UUID, list[RiskMemoryEntry]] = {}
     for entry in entries:
         if isinstance(entry, RiskMemoryEntry):
@@ -250,12 +243,13 @@ def _database_risk_memory() -> dict[UUID, list[RiskMemoryEntry]]:
 
 
 def _database_transferred_risk_ids() -> set[UUID]:
-    if not repository._db_ready:
-        raise HTTPException(503, "database read failed")
-    try:
-        markers = repository.database_state_objects("RiskReviewTransfer")
-    except RuntimeError as exc:
-        raise HTTPException(503, "database read failed") from exc
+    if repository._db_ready:
+        try:
+            markers = repository.database_state_objects("RiskReviewTransfer")
+        except RuntimeError as exc:
+            raise HTTPException(503, "database read failed") from exc
+    else:
+        markers = []
     result: set[UUID] = set()
     for marker in markers:
         if not isinstance(marker, dict):
@@ -285,16 +279,7 @@ def _risk_list_payload(risk: Risk, memories: dict[UUID, list[RiskMemoryEntry]]) 
 
 
 def _entity(store: dict[UUID, Any], entity_id: UUID, name: str) -> Any:
-    collections = {
-        id(repository.companies): "CompanySettings",
-        id(repository.materiality_profiles): "MaterialityProfile",
-        id(repository.mapping_profiles): "MappingProfile",
-        id(repository.closing_analysis_sets): "ClosingAnalysisSet",
-        id(repository.events): "AccountingEvent",
-        id(repository.risks): "Risk",
-    }
-    collection = collections.get(id(store))
-    entity = _database_object(collection, entity_id, store) if collection else store.get(entity_id)
+    entity = store.get(entity_id)
     if not entity:
         raise HTTPException(404, f"{name} not found")
     return entity
@@ -310,50 +295,27 @@ def _save_upload(upload: UploadFile) -> Path:
     return Path(handle.name)
 
 
-def _load_job(job_id: str) -> dict[str, Any] | None:
-    stored = repository.get_runtime_setting(f"job:{job_id}")
-    if isinstance(stored, dict):
-        return dict(stored)
-    return jobs.get(job_id)
-
-
-def _update_job(job_id: str, **updates: Any) -> dict[str, Any] | None:
-    job = _load_job(job_id)
-    if job is None:
-        return None
-    job.update(updates)
-    jobs[job_id] = job
-    repository.save_runtime_setting(f"job:{job_id}", job)
-    return job
-
-
 def _process_gl_job(
     job_id: str,
     path: Path,
     company_id: UUID,
     profile: MappingProfile,
 ) -> None:
-    job = _load_job(job_id)
-    if job is None:
-        path.unlink(missing_ok=True)
-        return
+    job = jobs[job_id]
     try:
-        _update_job(job_id, status="RUNNING", stage="NORMALIZATION")
+        job.update(status="RUNNING", stage="NORMALIZATION")
         lines, reconciliation = normalize_general_ledger(
             path,
             company_id,
             profile,
             repository.processed_source_hashes,
         )
-        _update_job(
-            job_id,
-            processedRows=reconciliation.source_rows,
-            reconciliation=encode(reconciliation),
-        )
+        job["processedRows"] = reconciliation.source_rows
+        job["reconciliation"] = encode(reconciliation)
         if not reconciliation.balanced:
-            _update_job(job_id, status="FAILED", stage="RECONCILIATION")
+            job.update(status="FAILED", stage="RECONCILIATION")
             return
-        _update_job(job_id, stage="EVENT_HASH")
+        job.update(stage="EVENT_HASH")
         result = process_journals(
             repository,
             lines,
@@ -361,9 +323,9 @@ def _process_gl_job(
             knowledge_candidates=knowledge_candidates,
             **_ai_runtime_options(),
         )
-        _update_job(job_id, status="COMPLETED", stage="COMPLETE", result=result)
+        job.update(status="COMPLETED", stage="COMPLETE", result=result)
     except Exception as exc:
-        _update_job(job_id, status="FAILED", stage="ERROR", error=str(exc))
+        job.update(status="FAILED", stage="ERROR", error=str(exc))
     finally:
         path.unlink(missing_ok=True)
 
@@ -511,14 +473,7 @@ def delete_company(
 
 @router.get("/settings/materiality")
 def get_materiality(company_id: UUID) -> Any:
-    profile = next(
-        (
-            item
-            for item in _database_collection("MaterialityProfile", repository.materiality_profiles)
-            if isinstance(item, MaterialityProfile) and item.company_id == company_id
-        ),
-        None,
-    )
+    profile = repository.get_materiality_profile(company_id)
     return encode(profile) if profile else None
 
 
@@ -537,8 +492,7 @@ def upsert_materiality(
 
 @router.get("/settings/runtime")
 def get_runtime_settings() -> Any:
-    stored = repository.get_runtime_setting("global", runtime_settings)
-    response = dict(stored) if isinstance(stored, dict) else dict(runtime_settings)
+    response = dict(runtime_settings)
     connection = dict(response.get("aiConnection", {}))
     secret_reference = connection.get("secretReference")
     secret_name = (
@@ -777,9 +731,7 @@ def reindex_knowledge_documents(
 @router.get("/settings/knowledge-sources/local-standards/candidates")
 def list_knowledge_candidates(company_id: UUID) -> Any:
     return [
-        item
-        for item in _current_knowledge_candidates().values()
-        if item["companyId"] == str(company_id)
+        item for item in knowledge_candidates.values() if item["companyId"] == str(company_id)
     ]
 
 
@@ -873,8 +825,7 @@ def list_mapping_profiles(company_id: UUID, source_type: str | None = None) -> A
     return encode(
         [
             profile
-            for profile in _database_collection("MappingProfile", repository.mapping_profiles)
-            if isinstance(profile, MappingProfile)
+            for profile in repository.mapping_profiles.values()
             if profile.company_id == company_id
             and (not source_type or profile.source_type == source_type)
         ]
@@ -913,8 +864,7 @@ def list_closing_analysis_sets(
         sorted(
             (
                 item
-                for item in _database_collection("ClosingAnalysisSet", repository.closing_analysis_sets)
-                if isinstance(item, ClosingAnalysisSet)
+                for item in repository.closing_analysis_sets.values()
                 if item.company_id == company_id
                 and (fiscal_year is None or item.fiscal_year == fiscal_year)
             ),
@@ -931,15 +881,14 @@ def get_closing_analysis_set(closing_analysis_set_id: UUID) -> Any:
     )
     findings = [
         finding
-        for finding in _database_collection("CrossAnalysisFinding", repository.cross_analysis_findings)
-        if isinstance(finding, CrossAnalysisFinding)
-        and finding.closing_analysis_set_id == closing_set.id
+        for finding in repository.cross_analysis_findings.values()
+        if finding.closing_analysis_set_id == closing_set.id
     ]
     return encode(
         {
             "closingAnalysisSet": closing_set,
-            "journalLineCount": sum(1 for line in _database_collection("JournalLine", repository.journal_lines) if isinstance(line, JournalLine) and line.closing_analysis_set_id == closing_set.id),
-            "settlementBalanceCount": sum(1 for balance in _database_collection("SettlementBalance", repository.settlement_balances) if isinstance(balance, SettlementBalance) and balance.closing_analysis_set_id == closing_set.id),
+            "journalLineCount": len(repository.lines_for_set(closing_set.id)),
+            "settlementBalanceCount": len(repository.settlement_for_set(closing_set.id)),
             "crossFindings": findings,
         }
     )
@@ -1116,21 +1065,19 @@ def queue_general_ledger_import(
         raise HTTPException(422, "mapping profile scope mismatch")
     path = _save_upload(file)
     job_id = str(uuid4())
-    job = {
+    jobs[job_id] = {
         "jobId": job_id,
         "status": "RECEIVED",
         "stage": "UPLOAD_COMPLETE",
         "processedRows": 0,
     }
-    jobs[job_id] = job
-    repository.save_runtime_setting(f"job:{job_id}", job)
     background_tasks.add_task(_process_gl_job, job_id, path, company_id, profile)
-    return {**job, "statusUrl": f"/api/v1/jobs/{job_id}"}
+    return {**jobs[job_id], "statusUrl": f"/api/v1/jobs/{job_id}"}
 
 
 @router.get("/jobs/{job_id}")
 def get_job(job_id: str) -> Any:
-    job = _load_job(job_id)
+    job = jobs.get(job_id)
     if not job:
         raise HTTPException(404, "job not found")
     return job
@@ -1177,10 +1124,9 @@ def _risk_review_payload(risk: Any) -> dict[str, Any]:
         title = str(getattr(item, "title", ""))
         return [title.removeprefix("검토 필요:").strip()] if title else []
 
-    event = _database_object("AccountingEvent", risk.event_id, repository.events)
+    event = repository.events.get(risk.event_id)
     lines = [
-        line for line in _database_collection("JournalLine", repository.journal_lines)
-        if isinstance(line, JournalLine)
+        line for line in repository.journal_lines.values()
         if event and line.id in event.journal_line_ids
     ]
 
@@ -1191,27 +1137,26 @@ def _risk_review_payload(risk: Any) -> dict[str, Any]:
         (
             prior_event,
             [
-                line for line in _database_collection("JournalLine", repository.journal_lines)
-                if isinstance(line, JournalLine) and line.id in prior_event.journal_line_ids
+                line for line in repository.journal_lines.values()
+                if line.id in prior_event.journal_line_ids
             ],
-            _database_risk_memory().get(prior_risk.id, []),
+            repository.risk_memory.get(prior_risk.id, []),
             issue_types_for(prior_risk),
         )
-        for prior_risk in _database_collection("Risk", repository.risks)
-        if isinstance(prior_risk, Risk)
+        for prior_risk in repository.risks.values()
         if prior_risk.company_id == risk.company_id
         and prior_risk.id != risk.id
-        and (prior_event := _database_object("AccountingEvent", prior_risk.event_id, repository.events))
+        and (prior_event := repository.events.get(prior_risk.event_id))
     ]
     return {
         **encode(risk),
-        "analyzed_at": latest_analysis_at(_database_risk_memory().get(risk.id, [])),
-        "review_decision": current_review_decision(_database_risk_memory().get(risk.id, [])),
+        "analyzed_at": latest_analysis_at(repository.risk_memory.get(risk.id, [])),
+        "review_decision": current_review_decision(repository.risk_memory.get(risk.id, [])),
         "review_recommendation": recommend_review_decision(
             event, lines, history,
             issue_types=issue_types_for(risk),
         ) if event else None,
-        "severity": current_risk_severity(_database_risk_memory().get(risk.id, []), risk.level.value),
+        "severity": current_risk_severity(repository.risk_memory.get(risk.id, []), risk.level.value),
         "severity_recommendation": recommend_risk_severity(
             event, lines, history,
             issue_types=issue_types_for(risk),
@@ -1224,9 +1169,8 @@ def _review_case(review_case_ref: UUID | str) -> Any:
         review_case_id = UUID(str(review_case_ref))
     except ValueError:
         matches = [
-            item
-            for item in _database_collection("RiskReviewCase", repository.risk_review_cases)
-            if isinstance(item, RiskReviewCase) and item.risk_code == str(review_case_ref)
+            item for item in repository.risk_review_cases.values()
+            if item.risk_code == str(review_case_ref)
         ]
         review_case = matches[0] if len(matches) == 1 else None
     else:
@@ -1723,25 +1667,17 @@ def transition_risk(
 
 @router.get("/events")
 def list_events(company_id: UUID) -> Any:
-    return encode([
-        event
-        for event in _database_collection("AccountingEvent", repository.events)
-        if isinstance(event, AccountingEvent) and event.company_id == company_id
-    ])
+    return encode([event for event in repository.events.values() if event.company_id == company_id])
 
 
 @router.get("/events/{event_id}")
 def get_event(event_id: UUID) -> Any:
     event = _entity(repository.events, event_id, "event")
     lines = [
-        line
-        for line in _database_collection("JournalLine", repository.journal_lines)
-        if isinstance(line, JournalLine) and line.id in event.journal_line_ids
+        line for line in repository.journal_lines.values() if line.id in event.journal_line_ids
     ]
     related_risks = [
-        risk
-        for risk in _database_collection("Risk", repository.risks)
-        if isinstance(risk, Risk) and risk.event_id == event.id
+        risk for risk in repository.risks.values() if risk.event_id == event.id
     ]
     return {
         **encode(event),
@@ -1832,9 +1768,7 @@ def delete_risk_analysis(
 def list_journals(company_id: UUID, limit: int = 100) -> Any:
     safe_limit = min(max(limit, 1), 500)
     lines = [
-        line
-        for line in _database_collection("JournalLine", repository.journal_lines)
-        if isinstance(line, JournalLine) and line.company_id == company_id
+        line for line in repository.journal_lines.values() if line.company_id == company_id
     ]
     lines.sort(key=lambda item: (item.posting_date, item.document_number), reverse=True)
     return encode(lines[:safe_limit])
@@ -1844,9 +1778,8 @@ def list_journals(company_id: UUID, limit: int = 100) -> Any:
 def get_journal_document(company_id: UUID, document_number: str) -> Any:
     lines = [
         line
-        for line in _database_collection("JournalLine", repository.journal_lines)
-        if isinstance(line, JournalLine)
-        and line.company_id == company_id and line.document_number == document_number
+        for line in repository.journal_lines.values()
+        if line.company_id == company_id and line.document_number == document_number
     ]
     lines.sort(key=lambda item: (item.source_row, item.id.hex))
     return encode(lines)
@@ -1854,13 +1787,6 @@ def get_journal_document(company_id: UUID, document_number: str) -> Any:
 
 @router.get("/audit-log")
 def audit_log(company_id: UUID) -> Any:
-    if not repository._db_ready:
-        raise HTTPException(503, "database read failed")
-    try:
-        entries = repository.database_log_entries("audit_log")
-    except RuntimeError as exc:
-        raise HTTPException(503, "database read failed") from exc
-    return encode([
-        entry for entry in entries
-        if isinstance(entry, AuditLogEntry) and entry.company_id == company_id
-    ])
+    return encode(
+        [entry for entry in repository.audit_log if entry.company_id == company_id]
+    )
