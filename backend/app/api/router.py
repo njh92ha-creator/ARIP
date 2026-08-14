@@ -377,7 +377,7 @@ def signup(payload: SignupInput) -> Any:
         job_title=payload.job_title,
     )
     repository.save(account)
-    return {"email": account.email}
+    return {"email": account.email, "full_name": account.full_name}
 
 
 @router.post("/auth/login")
@@ -388,7 +388,7 @@ def login(payload: AccountCredentials) -> Any:
         account.password_hash, _password_digest(payload.password, account.password_salt)
     ):
         raise HTTPException(401, "email or password is incorrect")
-    return {"email": account.email}
+    return {"email": account.email, "full_name": account.full_name}
 
 
 @router.post("/runtime/reload-from-database")

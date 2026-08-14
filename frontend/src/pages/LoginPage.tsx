@@ -42,8 +42,9 @@ export function LoginPage() {
         setConfirmPassword('')
         setNotice('회원가입이 완료되었습니다. 로그인해 주세요.')
       } else {
-        await api.post('/auth/login', { email, password })
+        const response = await api.post('/auth/login', { email, password })
         sessionStorage.setItem('arip-login-email', email.trim().toLowerCase())
+        sessionStorage.setItem('arip-login-name', response.data.full_name || email.trim().toLowerCase())
         navigate('/', { replace: true })
       }
     } catch (requestError: any) {
