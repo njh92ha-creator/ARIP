@@ -81,7 +81,7 @@ export function AppShell() {
           </Button>
         </Box>
       </Drawer>
-      <Box component="main" sx={{ flexGrow: 1, ml: `${drawerWidth}px`, bgcolor: 'background.default' }}>
+      <Box component="main" sx={{ flexGrow: 1, bgcolor: 'background.default' }}>
         <AppBar
           position="sticky"
           elevation={0}
