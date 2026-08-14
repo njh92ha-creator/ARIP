@@ -252,9 +252,15 @@ def _database_transferred_risk_ids() -> set[UUID]:
         markers = []
     result: set[UUID] = set()
     for marker in markers:
-        if isinstance(marker, dict) and marker.get("source_risk_id"):
+        if not isinstance(marker, dict):
+            continue
+        source_risk_id = marker.get("source_risk_id")
+        if not source_risk_id:
+            memory = marker.get("memory")
+            source_risk_id = getattr(memory, "risk_id", None)
+        if source_risk_id:
             try:
-                result.add(UUID(str(marker["source_risk_id"])))
+                result.add(UUID(str(source_risk_id)))
             except ValueError:
                 continue
     return result
