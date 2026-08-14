@@ -39,14 +39,19 @@ from app.api.schemas import (
     RiskTransition,
 )
 from app.domain.models import (
+    AccountingEvent,
     AuditLogEntry,
     CompanySettings,
+    CrossAnalysisFinding,
+    JournalLine,
     MappingProfile,
     MappingStatus,
     MaterialityProfile,
     RiskMemoryEntry,
+    Risk,
     RiskLevel,
     RiskReviewAttachment,
+    RiskReviewCase,
     RiskReviewQuestionAssessment,
     RiskStatus,
 )
@@ -196,6 +201,70 @@ def _reload_current_database_state() -> None:
         raise HTTPException(503, "database read failed")
 
 
+def _database_collection(collection: str, fallback: dict[UUID, Any]) -> list[Any]:
+    """Read a single current collection instead of restoring all application state."""
+    if repository._db_ready:
+        try:
+            return repository.database_state_objects(collection)
+        except RuntimeError as exc:
+            raise HTTPException(503, "database read failed") from exc
+    return list(fallback.values())
+
+
+def _database_object(collection: str, object_id: UUID, fallback: dict[UUID, Any]) -> Any | None:
+    if repository._db_ready:
+        try:
+            return repository.database_state_object(collection, object_id)
+        except RuntimeError as exc:
+            raise HTTPException(503, "database read failed") from exc
+    return fallback.get(object_id)
+
+
+def _database_risk_memory() -> dict[UUID, list[RiskMemoryEntry]]:
+    if repository._db_ready:
+        try:
+            entries = repository.database_log_entries("risk_memory")
+        except RuntimeError as exc:
+            raise HTTPException(503, "database read failed") from exc
+    else:
+        return repository.risk_memory
+    grouped: dict[UUID, list[RiskMemoryEntry]] = {}
+    for entry in entries:
+        if isinstance(entry, RiskMemoryEntry):
+            grouped.setdefault(entry.risk_id, []).append(entry)
+    return grouped
+
+
+def _database_transferred_risk_ids() -> set[UUID]:
+    if repository._db_ready:
+        try:
+            markers = repository.database_state_objects("RiskReviewTransfer")
+        except RuntimeError as exc:
+            raise HTTPException(503, "database read failed") from exc
+    else:
+        markers = []
+    result: set[UUID] = set()
+    for marker in markers:
+        if isinstance(marker, dict) and marker.get("source_risk_id"):
+            try:
+                result.add(UUID(str(marker["source_risk_id"])))
+            except ValueError:
+                continue
+    return result
+
+
+def _risk_list_payload(risk: Risk, memories: dict[UUID, list[RiskMemoryEntry]]) -> dict[str, Any]:
+    memory = memories.get(risk.id, [])
+    return {
+        **encode(risk),
+        "analyzed_at": latest_analysis_at(memory),
+        "review_decision": current_review_decision(memory),
+        "severity": current_risk_severity(memory, risk.level.value),
+        "review_recommendation": None,
+        "severity_recommendation": None,
+    }
+
+
 def _entity(store: dict[UUID, Any], entity_id: UUID, name: str) -> Any:
     entity = store.get(entity_id)
     if not entity:
@@ -315,8 +384,7 @@ def create_company(
 
 @router.get("/companies")
 def list_companies() -> Any:
-    _reload_current_database_state()
-    return encode(list(repository.companies.values()))
+    return encode(_database_collection("CompanySettings", repository.companies))
 
 
 @router.patch("/companies/{company_id}")
@@ -964,9 +1032,8 @@ def get_job(job_id: str) -> Any:
 
 @router.get("/dashboard")
 def dashboard(company_id: UUID) -> Any:
-    _reload_current_database_state()
-    risks = [risk for risk in repository.risks.values() if risk.company_id == company_id]
-    events = [event for event in repository.events.values() if event.company_id == company_id]
+    risks = [risk for risk in _database_collection("Risk", repository.risks) if isinstance(risk, Risk) and risk.company_id == company_id]
+    events = [event for event in _database_collection("AccountingEvent", repository.events) if isinstance(event, AccountingEvent) and event.company_id == company_id]
     return {
         "dataAsOf": "current-memory-snapshot",
         "totalRisks": len(risks),
@@ -982,14 +1049,16 @@ def dashboard(company_id: UUID) -> Any:
 
 @router.get("/risks")
 def list_risks(company_id: UUID) -> Any:
-    _reload_current_database_state()
+    memories = _database_risk_memory()
+    transferred_risk_ids = _database_transferred_risk_ids()
     return encode(
         [
-            _risk_review_payload(risk)
-            for risk in repository.risks.values()
+            _risk_list_payload(risk, memories)
+            for risk in _database_collection("Risk", repository.risks)
+            if isinstance(risk, Risk)
             if risk.company_id == company_id
-            and is_visible_in_risk_lists(repository.risk_memory.get(risk.id, []))
-            and not repository.is_risk_transferred(risk.id)
+            and is_visible_in_risk_lists(memories.get(risk.id, []))
+            and risk.id not in transferred_risk_ids
         ]
     )
 
@@ -1085,14 +1154,15 @@ def _review_case_summary(review_case: Any) -> dict[str, Any]:
 
 @router.get("/risk-reviews")
 def list_risk_reviews(company_id: UUID, status: str | None = None) -> Any:
-    _reload_current_database_state()
     requested_status = status.upper() if status else None
     if requested_status not in {None, "OPEN", "CLEARED"}:
         raise HTTPException(422, "status must be OPEN or CLEARED")
     return encode(
         [
             _review_case_summary(review_case)
-            for review_case in repository.review_cases_for_company(company_id)
+            for review_case in _database_collection("RiskReviewCase", repository.risk_review_cases)
+            if isinstance(review_case, RiskReviewCase)
+            if review_case.company_id == company_id
             if review_case.review_decision != "PASS"
             and (requested_status is None or review_case.status == requested_status)
         ]
@@ -1102,11 +1172,12 @@ def list_risk_reviews(company_id: UUID, status: str | None = None) -> Any:
 @router.get("/settings/risk-management")
 def list_risk_management(company_id: UUID) -> Any:
     """Administrative view of every source analysis, including PASS and transferred risks."""
-    _reload_current_database_state()
+    memories = _database_risk_memory()
     return encode(
         [
-            _risk_review_payload(risk)
-            for risk in repository.risks.values()
+            _risk_list_payload(risk, memories)
+            for risk in _database_collection("Risk", repository.risks)
+            if isinstance(risk, Risk)
             if risk.company_id == company_id
         ]
     )
@@ -1443,26 +1514,34 @@ def delete_risk_review_attachment(
 def get_risk(
     risk_id: UUID,
 ) -> Any:
-    risk = _entity(repository.risks, risk_id, "risk")
-    event = repository.events.get(risk.event_id)
-    lines = [
-        line
-        for line in repository.journal_lines.values()
-        if event and line.id in event.journal_line_ids
+    risk = _database_object("Risk", risk_id, repository.risks)
+    if not isinstance(risk, Risk):
+        raise HTTPException(404, "risk not found")
+    event = _database_object("AccountingEvent", risk.event_id, repository.events)
+    lines = (
+        [
+            line
+            for line in repository.database_state_objects(
+                "JournalLine", object_ids=event.journal_line_ids
+            )
+            if isinstance(line, JournalLine)
+        ]
+        if isinstance(event, AccountingEvent)
+        else []
+    )
+    memories = _database_risk_memory()
+    cross_findings = [
+        finding
+        for finding in _database_collection("CrossAnalysisFinding", repository.cross_analysis_findings)
+        if isinstance(finding, CrossAnalysisFinding)
+        and (risk.id in finding.linked_risk_ids or finding.id in risk.cross_finding_ids)
     ]
     return {
-        **_risk_review_payload(risk),
-        "event": encode(event) if event else None,
+        **_risk_list_payload(risk, memories),
+        "event": encode(event) if isinstance(event, AccountingEvent) else None,
         "journalLines": encode(lines),
-        "memory": encode(repository.risk_memory.get(risk.id, [])),
-        "crossFindings": encode(
-            [
-                finding
-                for finding in repository.cross_analysis_findings.values()
-                if risk.id in finding.linked_risk_ids
-                or finding.id in risk.cross_finding_ids
-            ]
-        ),
+        "memory": encode(memories.get(risk.id, [])),
+        "crossFindings": encode(cross_findings),
     }
 
 

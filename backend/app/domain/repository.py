@@ -202,6 +202,10 @@ class InMemoryRepository:
                         created_at timestamptz not null default now()
                     )
                 """))
+                connection.execute(text("""
+                    create index if not exists arip_state_log_collection_object_id_idx
+                    on arip_state_log (collection, object_id, id)
+                """))
             self._db_ready = True
         except Exception as exc:
             # The API remains usable in local/demo mode if the DB is unavailable.
@@ -309,6 +313,66 @@ class InMemoryRepository:
             self.last_db_error = None
             self._initialize_database()
             self._restore()
+
+    def database_state_objects(
+        self, collection: str, *, object_ids: list[UUID] | None = None
+    ) -> list[Any]:
+        """Read only one state collection (or selected object IDs) from PostgreSQL."""
+        if not self._db_ready:
+            raise RuntimeError("database read is unavailable")
+        try:
+            params: dict[str, Any] = {"collection": collection}
+            query = "select payload from arip_state where collection = :collection"
+            if object_ids is not None:
+                if not object_ids:
+                    return []
+                placeholders = []
+                for index, object_id in enumerate(object_ids):
+                    key = f"object_id_{index}"
+                    placeholders.append(f":{key}")
+                    params[key] = str(object_id)
+                query += f" and object_id in ({', '.join(placeholders)})"
+            with engine.connect() as connection:
+                rows = connection.execute(text(query), params)
+                result = [pickle.loads(bytes(payload)) for (payload,) in rows]
+            for item in result:
+                hydrate_legacy_object(item)
+            return result
+        except Exception as exc:
+            self._db_ready = False
+            self.last_db_error = type(exc).__name__
+            raise RuntimeError("database read failed") from exc
+
+    def database_state_object(self, collection: str, object_id: UUID | str) -> Any | None:
+        items = self.database_state_objects(collection, object_ids=[UUID(str(object_id))])
+        return items[0] if items else None
+
+    def database_log_entries(
+        self, collection: str, *, object_ids: list[UUID] | None = None
+    ) -> list[Any]:
+        """Read only one append-only log collection from PostgreSQL."""
+        if not self._db_ready:
+            raise RuntimeError("database read is unavailable")
+        try:
+            params: dict[str, Any] = {"collection": collection}
+            query = "select payload from arip_state_log where collection = :collection"
+            if object_ids is not None:
+                if not object_ids:
+                    return []
+                placeholders = []
+                for index, object_id in enumerate(object_ids):
+                    key = f"object_id_{index}"
+                    placeholders.append(f":{key}")
+                    params[key] = str(object_id)
+                query += f" and object_id in ({', '.join(placeholders)})"
+            query += " order by id"
+            with engine.connect() as connection:
+                rows = connection.execute(text(query), params)
+                return [pickle.loads(bytes(payload)) for (payload,) in rows]
+        except Exception as exc:
+            self._db_ready = False
+            self.last_db_error = type(exc).__name__
+            raise RuntimeError("database read failed") from exc
 
     def _persist(self, collection: str, obj: Any, *, append_only: bool = False) -> None:
         if not self._db_ready:
