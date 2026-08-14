@@ -41,6 +41,7 @@ from app.api.schemas import (
     RiskReviewTransfer,
     RiskSeverity,
     RiskTransition,
+    SignupInput,
 )
 from app.domain.models import (
     AccountingEvent,
@@ -359,7 +360,7 @@ def _password_digest(password: str, salt: str) -> str:
 
 
 @router.post("/auth/signup", status_code=201)
-def signup(payload: AccountCredentials) -> Any:
+def signup(payload: SignupInput) -> Any:
     account_id = _account_id(payload.email)
     existing = repository.database_state_object("UserAccount", account_id) if repository._db_ready else repository.user_accounts.get(account_id)
     if existing is not None:
@@ -370,6 +371,10 @@ def signup(payload: AccountCredentials) -> Any:
         email=payload.email,
         password_salt=salt,
         password_hash=_password_digest(payload.password, salt),
+        full_name=payload.full_name,
+        birth_date=payload.birth_date,
+        department=payload.department,
+        job_title=payload.job_title,
     )
     repository.save(account)
     return {"email": account.email}

@@ -29,6 +29,21 @@ class AccountCredentials(BaseModel):
         return value
 
 
+class SignupInput(AccountCredentials):
+    full_name: str
+    birth_date: date
+    department: str
+    job_title: str
+
+    @field_validator("full_name", "department", "job_title")
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("required")
+        return normalized
+
+
 class CompanyCreate(BaseModel):
     company_code: str
     company_name: str

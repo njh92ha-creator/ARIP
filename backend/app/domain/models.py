@@ -96,6 +96,10 @@ class UserAccount:
     email: str
     password_salt: str
     password_hash: str
+    full_name: str = ""
+    birth_date: date | None = None
+    department: str = ""
+    job_title: str = ""
     id: UUID = field(default_factory=uuid4)
 
 
