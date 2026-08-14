@@ -9,7 +9,7 @@ from typing import Any
 
 from app.domain.models import Risk, RiskReviewCase, RiskReviewSemanticEmbedding
 from app.services.knowledge_rag import embed_texts
-SIMILARITY_THRESHOLD = 0.70
+SIMILARITY_THRESHOLD = 0.62
 MAX_SIMILAR_CASES = 3
 
 
