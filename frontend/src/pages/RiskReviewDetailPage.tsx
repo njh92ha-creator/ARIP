@@ -210,7 +210,7 @@ function SnapshotCard({ reviewCase }: { reviewCase: RiskReviewCase }) {
     <Typography color="text.secondary" sx={{ mt: .75, lineHeight: 1.75 }}>{pkg.summary || '-'}</Typography>
     <Typography sx={{ ...labelSx, mt: 2.25 }}>회계사건 추론</Typography>
     <Typography color="text.secondary" sx={{ mt: .75, lineHeight: 1.75 }}>{pkg.event_inference || '-'}</Typography>
-    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'repeat(2, 1fr)' }, gap: 3, mt: 2.5 }}>
+    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr', gap: 3, mt: 2.5 }}>
       <Box><Typography fontWeight={700}>회계감사 이슈</Typography><ReadOnlyList items={pkg.audit_issues} emptyText="식별된 이슈가 없습니다." /></Box>
       <Box><Typography fontWeight={700}>권장 증빙</Typography><ReadOnlyList items={pkg.evidence_checklist} emptyText="권장 증빙이 없습니다." /></Box>
     </Box>
