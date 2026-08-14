@@ -494,7 +494,7 @@ export function RiskReviewDetailPage() {
     <Dialog open={exposureOpen} onClose={() => setExposureOpen(false)} fullWidth maxWidth="sm"><DialogTitle>리스크 노출금액</DialogTitle><DialogContent><Stack spacing={2} sx={{ pt: 1 }}><TextField label="노출금액 (KRW)" value={exposureAmount} onChange={(event) => { const digits = event.target.value.replaceAll(/[^0-9]/g, ''); setExposureAmount(digits ? new Intl.NumberFormat('ko-KR').format(Number(digits)) : '') }} inputMode="numeric" /><TextField label="산정 근거" multiline minRows={4} value={exposureBasis} onChange={(event) => setExposureBasis(event.target.value)} />{exposure.isError ? <Alert severity="error">노출금액을 저장하지 못했습니다.</Alert> : null}</Stack></DialogContent><DialogActions><Button onClick={() => setExposureOpen(false)}>닫기</Button><Button variant="contained" disabled={exposure.isPending} onClick={() => exposure.mutate()}>{exposure.isPending ? '저장 중' : '저장'}</Button></DialogActions></Dialog>
     <Dialog open={remediationOpen} onClose={() => setRemediationOpen(false)} fullWidth maxWidth="md"><DialogTitle>수정/조치사항</DialogTitle><DialogContent><Stack spacing={2} sx={{ pt: 1 }}><TextField fullWidth multiline minRows={7} value={remediationActions} onChange={(event) => setRemediationActions(event.target.value)} placeholder="수정 또는 조치사항을 입력하세요." />{remediation.isError ? <Alert severity="error">{errorMessage(remediation.error, '수정/조치사항을 저장하지 못했습니다.')}</Alert> : null}</Stack></DialogContent><DialogActions><Button onClick={() => setRemediationOpen(false)}>닫기</Button><Button variant="contained" disabled={remediation.isPending} onClick={() => remediation.mutate()}>{remediation.isPending ? '저장 중' : '저장'}</Button></DialogActions></Dialog>
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(0, 1.65fr) minmax(340px, .9fr)' }, gap: 3, alignItems: { xs: 'start', lg: 'stretch' }, mt: 3, height: { lg: 'calc(100vh - 330px)' }, minHeight: 0 }}>
-    <Stack spacing={3} sx={{ height: { lg: '100%' }, minHeight: 0, overflowY: { lg: 'auto' }, overscrollBehavior: { lg: 'contain' }, pr: { lg: 1 } }}>
+    <Stack spacing={3} sx={{ height: { lg: '100%' }, minHeight: 0, overflowY: { lg: 'auto' }, overscrollBehavior: { lg: 'contain' }, pr: { lg: 1 }, '& > .MuiCard-root': { flexShrink: 0 } }}>
       <Card sx={{ ...cardSx, display: 'none' }}><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
         <SectionTitle>리스크 노출금액</SectionTitle>
         <Stack spacing={1.5} sx={{ mt: 2 }}>
@@ -513,7 +513,7 @@ export function RiskReviewDetailPage() {
         <OverallAssessmentCard reviewCaseId={reviewCase.id} cacheKey={riskCode} hasAnswers={reviewCase.answers.some((item) => item.answer.trim().length > 0)} assessment={reviewCase.overall_assessment} />
       </CardContent></Card>
     </Stack>
-    <Stack spacing={3} sx={{ height: { lg: '100%' }, minHeight: 0, overflowY: { lg: 'auto' }, overscrollBehavior: { lg: 'contain' }, pr: { lg: 1 } }}>
+    <Stack spacing={3} sx={{ height: { lg: '100%' }, minHeight: 0, overflowY: { lg: 'auto' }, overscrollBehavior: { lg: 'contain' }, pr: { lg: 1 }, '& > .MuiCard-root': { flexShrink: 0 } }}>
       <SnapshotCard reviewCase={reviewCase} />
       <AttachmentCard reviewCase={reviewCase} cacheKey={riskCode} />
     </Stack></Box>
