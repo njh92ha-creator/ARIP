@@ -1723,6 +1723,17 @@ def list_journals(company_id: UUID, limit: int = 100) -> Any:
     return encode(lines[:safe_limit])
 
 
+@router.get("/journals/document")
+def get_journal_document(company_id: UUID, document_number: str) -> Any:
+    lines = [
+        line
+        for line in repository.journal_lines.values()
+        if line.company_id == company_id and line.document_number == document_number
+    ]
+    lines.sort(key=lambda item: (item.source_row, item.id.hex))
+    return encode(lines)
+
+
 @router.get("/audit-log")
 def audit_log(company_id: UUID) -> Any:
     return encode(
