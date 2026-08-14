@@ -79,6 +79,7 @@ from app.services.mapping import propose_mapping
 from app.services.orchestrator import process_journals
 from app.services.ai_risk_analysis import assign_risk_code
 from app.ai.provider import KIFRS_EVENT_ANALYSIS_PROMPT
+from app.services.risk_text_compaction import compact_risk_text
 from app.services.review_question_assessment import assess_review_question
 from app.services.review_overall_assessment import assess_review_overall
 from app.services.knowledge_rag import KnowledgeIndexError, delete_indexed_document, index_document
@@ -1181,6 +1182,32 @@ def list_risk_management(company_id: UUID) -> Any:
             if risk.company_id == company_id
         ]
     )
+
+
+@router.post("/risks/{risk_id}/compact-analysis-text")
+def compact_existing_risk_analysis_text(risk_id: UUID) -> Any:
+    """Persist a one-time compact form of the three long analysis lists."""
+    risk = _database_object("Risk", risk_id, repository.risks)
+    if not isinstance(risk, Risk):
+        raise HTTPException(404, "risk not found")
+    options = _ai_runtime_options()
+    try:
+        compacted = compact_risk_text(
+            audit_issues=list(risk.package.audit_issues),
+            evidence_checklist=list(risk.package.evidence_checklist),
+            missing_facts=list(risk.package.missing_facts),
+            model=options["ai_model"],
+            api_key_env=options["ai_key_env"],
+            enabled=options["external_ai_enabled"],
+            provider=options["ai_provider"],
+        )
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    risk.package.audit_issues = compacted["auditIssues"]
+    risk.package.evidence_checklist = compacted["evidenceChecklist"]
+    risk.package.missing_facts = compacted["missingFacts"]
+    repository.save(risk)
+    return encode(risk)
 
 
 def _review_case_payload(review_case: Any) -> dict[str, Any]:
