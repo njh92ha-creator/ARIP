@@ -11,7 +11,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Divider,
   FormControl,
   IconButton,
   InputLabel,
@@ -199,13 +198,6 @@ function SnapshotCard({ reviewCase }: { reviewCase: RiskReviewCase }) {
   return <Card sx={cardSx}><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
     <SectionTitle action={<Chip icon={<LockOutlinedIcon />} label="읽기 전용" size="small" variant="outlined" />}>이관 시점 분석 스냅샷</SectionTitle>
     <Alert severity="info" icon={<LockOutlinedIcon />} sx={{ mt: 2 }}>아래 분석 내용은 이관 당시 복사된 기록이며 이 화면에서 변경할 수 없습니다.</Alert>
-    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(4, 1fr)' }, gap: 2, mt: 2.25 }}>
-      <Box><Typography sx={labelSx}>분석 등급</Typography><Typography fontWeight={700} sx={{ mt: .5 }}>{reviewCase.level}</Typography></Box>
-      <Box><Typography sx={labelSx}>분석 점수</Typography><Typography fontWeight={700} sx={{ mt: .5 }}>{reviewCase.score}</Typography></Box>
-      <Box><Typography sx={labelSx}>중요성</Typography><Typography fontWeight={700} sx={{ mt: .5 }}>{reviewCase.materiality_level}</Typography></Box>
-      <Box><Typography sx={labelSx}>분석 경로</Typography><Typography fontWeight={700} sx={{ mt: .5 }}>{reviewCase.route}</Typography></Box>
-    </Box>
-    <Divider sx={{ my: 2.5 }} />
     <Typography sx={labelSx}>종합 판단</Typography>
     <Typography color="text.secondary" sx={{ mt: .75, lineHeight: 1.75 }}>{pkg.summary || '-'}</Typography>
     <Typography sx={{ ...labelSx, mt: 2.25 }}>회계사건 추론</Typography>
