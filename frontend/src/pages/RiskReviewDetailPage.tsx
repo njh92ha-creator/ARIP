@@ -321,6 +321,7 @@ export function RiskReviewDetailPage() {
   const [exposureAmount, setExposureAmount] = useState('')
   const [exposureBasis, setExposureBasis] = useState('')
   const [exposureOpen, setExposureOpen] = useState(false)
+  const [remediationOpen, setRemediationOpen] = useState(false)
   const [remediationActions, setRemediationActions] = useState('')
   const { data: companies, isLoading: isCompanyLoading, isError: isCompanyError } = useQuery({
     queryKey: ['companies'],
@@ -490,9 +491,10 @@ export function RiskReviewDetailPage() {
     </Stack>
     {controlError ? <Alert severity="error" sx={{ mb: 2 }}>{controlError}</Alert> : null}
     {reviewCase.review_decision === 'PASS' ? <Alert severity="success" sx={{ mb: 2 }}>Pass로 분류되어 검토 목록에서는 숨겨집니다. 이 상세 경로는 계속 사용할 수 있습니다.</Alert> : null}
-    <Card sx={cardSx}><CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}><Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}><Box><Typography fontWeight={700}>노출금액</Typography><Typography color="text.secondary" variant="body2">{reviewCase.exposure_amount ? `${new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 2 }).format(reviewCase.exposure_amount / 1_000_000)}백만원` : '노출금액 미입력'} · {reviewCase.exposure_basis ? '근거 있음' : '근거 미입력'}</Typography></Box><Button size="small" variant="outlined" onClick={() => setExposureOpen(true)}>입력·수정</Button></Stack></CardContent></Card>
-    <Card sx={{ ...cardSx, mt: 1.5 }}><CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}><Typography fontWeight={700}>수정/조치사항</Typography><TextField fullWidth multiline minRows={3} value={remediationActions} onChange={(event) => setRemediationActions(event.target.value)} placeholder="수정 또는 조치사항을 입력하세요." sx={{ mt: 1.25 }} /><Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 1 }}><Box>{remediation.isError ? <Typography color="error" variant="caption">{errorMessage(remediation.error, '수정/조치사항을 저장하지 못했습니다.')}</Typography> : null}</Box><Button size="small" variant="contained" disabled={remediation.isPending} onClick={() => remediation.mutate()}>{remediation.isPending ? '저장 중' : '저장'}</Button></Stack></CardContent></Card>
+    <Card sx={cardSx}><CardContent sx={{ p: 2.25, '&:last-child': { pb: 2.25 } }}><Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '220px 220px minmax(0, 1fr)' }, alignItems: 'stretch' }}><Box sx={{ pr: { md: 2.5 }, borderRight: { md: `1px solid ${border}` } }}><Typography fontWeight={700}>노출금액</Typography><Typography sx={{ mt: .5, fontSize: 22, fontWeight: 700 }}>{reviewCase.exposure_amount ? `${new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 2 }).format(reviewCase.exposure_amount / 1_000_000)}백만원` : '미입력'}</Typography><Button size="small" variant="outlined" sx={{ mt: 1.25 }} onClick={() => setExposureOpen(true)}>입력·수정</Button></Box><Box sx={{ px: { md: 2.5 }, py: { xs: 2, md: 0 }, borderRight: { md: `1px solid ${border}` }, borderTop: { xs: `1px solid ${border}`, md: 'none' } }}><Typography fontWeight={700}>산정 근거</Typography><Typography color="text.secondary" variant="body2" sx={{ mt: .75, whiteSpace: 'pre-wrap', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{reviewCase.exposure_basis || '입력된 산정 근거가 없습니다.'}</Typography></Box><Box sx={{ pl: { md: 2.5 }, pt: { xs: 2, md: 0 }, borderTop: { xs: `1px solid ${border}`, md: 'none' } }}><Stack direction="row" justifyContent="space-between" spacing={2}><Box sx={{ minWidth: 0 }}><Typography fontWeight={700}>수정/조치사항</Typography><Typography color="text.secondary" variant="body2" sx={{ mt: .75, whiteSpace: 'pre-wrap', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{remediationActions || '입력된 수정/조치사항이 없습니다.'}</Typography></Box><Button size="small" variant="text" sx={{ flex: '0 0 auto' }} onClick={() => setRemediationOpen(true)}>수정</Button></Stack></Box></Box></CardContent></Card>
     <Dialog open={exposureOpen} onClose={() => setExposureOpen(false)} fullWidth maxWidth="sm"><DialogTitle>리스크 노출금액</DialogTitle><DialogContent><Stack spacing={2} sx={{ pt: 1 }}><TextField label="노출금액 (KRW)" value={exposureAmount} onChange={(event) => { const digits = event.target.value.replaceAll(/[^0-9]/g, ''); setExposureAmount(digits ? new Intl.NumberFormat('ko-KR').format(Number(digits)) : '') }} inputMode="numeric" /><TextField label="산정 근거" multiline minRows={4} value={exposureBasis} onChange={(event) => setExposureBasis(event.target.value)} />{exposure.isError ? <Alert severity="error">노출금액을 저장하지 못했습니다.</Alert> : null}</Stack></DialogContent><DialogActions><Button onClick={() => setExposureOpen(false)}>닫기</Button><Button variant="contained" disabled={exposure.isPending} onClick={() => exposure.mutate()}>{exposure.isPending ? '저장 중' : '저장'}</Button></DialogActions></Dialog>
+    <Dialog open={remediationOpen} onClose={() => setRemediationOpen(false)} fullWidth maxWidth="md"><DialogTitle>수정/조치사항</DialogTitle><DialogContent><Stack spacing={2} sx={{ pt: 1 }}><TextField fullWidth multiline minRows={7} value={remediationActions} onChange={(event) => setRemediationActions(event.target.value)} placeholder="수정 또는 조치사항을 입력하세요." />{remediation.isError ? <Alert severity="error">{errorMessage(remediation.error, '수정/조치사항을 저장하지 못했습니다.')}</Alert> : null}</Stack></DialogContent><DialogActions><Button onClick={() => setRemediationOpen(false)}>닫기</Button><Button variant="contained" disabled={remediation.isPending} onClick={() => remediation.mutate()}>{remediation.isPending ? '저장 중' : '저장'}</Button></DialogActions></Dialog>
+    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(0, 1.65fr) minmax(340px, .9fr)' }, gap: 3, alignItems: 'start', mt: 3 }}>
     <Stack spacing={3}>
       <Card sx={{ ...cardSx, display: 'none' }}><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
         <SectionTitle>리스크 노출금액</SectionTitle>
@@ -503,7 +505,6 @@ export function RiskReviewDetailPage() {
           <Box><Button variant="contained" disabled={exposure.isPending} onClick={() => exposure.mutate()}>{exposure.isPending ? '저장 중' : '저장'}</Button></Box>
         </Stack>
       </CardContent></Card>
-      <SnapshotCard reviewCase={reviewCase} />
       <Card sx={cardSx}><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
         <SectionTitle action={<Chip label={`${reviewCase.answers.filter((item) => item.answer.trim()).length} / ${questions.length}`} size="small" variant="outlined" />}>검토 질문 및 답변</SectionTitle>
         <Typography color="text.secondary" variant="body2" sx={{ mt: 1.5 }}>각 질문의 답변은 개별적으로 저장됩니다.</Typography>
@@ -512,7 +513,10 @@ export function RiskReviewDetailPage() {
         </Stack>
         <OverallAssessmentCard reviewCaseId={reviewCase.id} cacheKey={riskCode} hasAnswers={reviewCase.answers.some((item) => item.answer.trim().length > 0)} assessment={reviewCase.overall_assessment} />
       </CardContent></Card>
-      <AttachmentCard reviewCase={reviewCase} cacheKey={riskCode} />
     </Stack>
+    <Stack spacing={3} sx={{ position: { lg: 'sticky' }, top: { lg: 24 } }}>
+      <SnapshotCard reviewCase={reviewCase} />
+      <AttachmentCard reviewCase={reviewCase} cacheKey={riskCode} />
+    </Stack></Box>
   </Box>
 }
