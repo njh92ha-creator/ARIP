@@ -67,16 +67,6 @@ KIFRS_EVENT_ANALYSIS_PROMPT = """# Role
 - 마크다운, 코드 펜스, 설명문을 덧붙이지 말고 응답 스키마에 맞는 JSON 객체 하나만 반환하라."""
 
 
-KIFRS_EVENT_ANALYSIS_PROMPT += """
-
-# Concision rule
-- auditIssues: write no more than three Korean audit-issue sentences, each about 70 Korean characters or fewer.
-- evidenceChecklist: write no more than five concise evidence names or phrases, each about 45 Korean characters or fewer.
-- missingFacts: write no more than five concise missing facts or conditions, each about 35 Korean characters or fewer.
-- Merge duplicates. Do not omit a material issue solely to meet these limits.
-"""
-
-
 RISK_ANALYSIS_SCHEMA = {
     "type": "object",
     "additionalProperties": False,

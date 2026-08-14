@@ -29,19 +29,6 @@ export function SettingsRiskManagement({ company }: { company?: Company }) {
       ])
     },
   })
-  const compactSelected = useMutation({
-    mutationFn: async () => {
-      for (const risk of selectedRisks) {
-        await api.post(`/risks/${risk.id}/compact-analysis-text`)
-      }
-    },
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['risk-management'] }),
-        queryClient.invalidateQueries({ queryKey: ['risks'] }),
-      ])
-    },
-  })
   const toggle = (id: string) => setSelectedIds((current) => {
     const next = new Set(current)
     if (next.has(id)) next.delete(id)
@@ -54,10 +41,6 @@ export function SettingsRiskManagement({ company }: { company?: Company }) {
     <Card variant="outlined" sx={{ borderRadius: 3 }}>
       <Box sx={{ px: 3, py: 2, borderBottom: '1px solid #E5E7EB', bgcolor: '#FAFBFC' }}><Stack direction="row" justifyContent="space-between" alignItems="center"><Stack direction="row" spacing={1.25} alignItems="center"><ShieldOutlined color="action" /><Typography variant="h6" fontWeight={700}>리스크 분석 결과 관리</Typography></Stack><Button color="error" variant="contained" startIcon={<DeleteOutline />} disabled={selectedIds.size === 0 || removeSelected.isPending} onClick={() => setConfirmOpen(true)}>선택 항목 영구 삭제 ({selectedIds.size})</Button></Stack></Box>
       <CardContent sx={{ p: 3 }}>
-        <Button variant="outlined" size="small" disabled={selectedIds.size === 0 || compactSelected.isPending || removeSelected.isPending} onClick={() => compactSelected.mutate()} sx={{ mb: 2 }}>
-          기존 문구 요약 적용 ({selectedIds.size})
-        </Button>
-        {compactSelected.isError && <Alert severity="error" sx={{ mb: 2 }}>문구 요약 저장에 실패했습니다.</Alert>}
         <Alert severity="warning" sx={{ mb: 2.5 }}>체크한 리스크 결과와 해당 리스크의 이력·감사 로그를 DB에서 영구 삭제합니다. 원본 원장·정산표·기준서는 유지됩니다.</Alert>
         <TableContainer sx={{ border: '1px solid #E5E7EB', borderRadius: 3 }}><Table size="small"><TableHead><TableRow><TableCell padding="checkbox"><Checkbox indeterminate={selectedIds.size > 0 && selectedIds.size < (risks.data?.length ?? 0)} checked={(risks.data?.length ?? 0) > 0 && selectedIds.size === risks.data?.length} onChange={toggleAll} /></TableCell><TableCell>리스크</TableCell><TableCell>검토 분류</TableCell><TableCell>분석 일시</TableCell></TableRow></TableHead><TableBody>
           {risks.isLoading ? <TableRow><TableCell colSpan={4} align="center" sx={{ py: 5 }}>불러오는 중...</TableCell></TableRow> :
