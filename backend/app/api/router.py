@@ -6,6 +6,7 @@ import hashlib
 import httpx
 import shutil
 import tempfile
+from copy import deepcopy
 from dataclasses import asdict
 from decimal import Decimal
 from enum import Enum
@@ -79,6 +80,7 @@ from app.services.mapping import propose_mapping
 from app.services.orchestrator import process_journals
 from app.services.ai_risk_analysis import assign_risk_code
 from app.ai.provider import KIFRS_EVENT_ANALYSIS_PROMPT
+from app.services.risk_review_transfer_summary import summarize_for_review_transfer
 from app.services.review_question_assessment import assess_review_question
 from app.services.review_overall_assessment import assess_review_overall
 from app.services.knowledge_rag import KnowledgeIndexError, delete_indexed_document, index_document
@@ -1215,12 +1217,30 @@ def transfer_risk_to_review(
     payload: RiskReviewTransfer,
     user: CurrentUser = Depends(require_roles(Role.ACCOUNTANT, Role.CLOSING_MANAGER, Role.ADMIN)),
 ) -> Any:
-    risk = _entity(repository.risks, risk_id, "risk")
+    risk = _database_object("Risk", risk_id, repository.risks)
+    if not isinstance(risk, Risk):
+        raise HTTPException(404, "risk not found")
     decision = payload.review_decision.upper()
     severity = payload.severity.upper()
+    existing_case = repository.review_case_for_source_risk(risk.id)
+    if existing_case is not None:
+        return _review_case_payload(existing_case)
+    risk_for_review = deepcopy(risk)
+    options = _ai_runtime_options()
+    summaries = summarize_for_review_transfer(
+        audit_issues=list(risk.package.audit_issues),
+        evidence_checklist=list(risk.package.evidence_checklist),
+        model=options["ai_model"],
+        api_key_env=options["ai_key_env"],
+        enabled=options["external_ai_enabled"],
+        provider=options["ai_provider"],
+    )
+    risk_for_review.package.audit_issues = summaries["auditIssues"]
+    risk_for_review.package.evidence_checklist = summaries["evidenceChecklist"]
+    risk_for_review.package.missing_facts = []
     try:
         review_case, _ = repository.transfer_risk_to_review(
-            risk,
+            risk_for_review,
             review_decision=decision,
             severity=severity,
             actor=user.user_id,
