@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import json
 import hashlib
+import hmac
+import secrets
 import httpx
 import shutil
 import tempfile
@@ -13,7 +15,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
-from uuid import UUID, uuid4
+from uuid import UUID, NAMESPACE_URL, uuid4, uuid5
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from fastapi.encoders import jsonable_encoder
@@ -21,6 +23,7 @@ from fastapi.encoders import jsonable_encoder
 from app.api.schemas import (
     AiConnectionInput,
     AiConnectionTestInput,
+    AccountCredentials,
     CompanyCreate,
     CompanyUpdate,
     KnowledgeSourceInput,
@@ -55,6 +58,7 @@ from app.domain.models import (
     RiskReviewCase,
     RiskReviewQuestionAssessment,
     RiskStatus,
+    UserAccount,
 )
 from app.domain.repository import repository
 from app.core.security import (
@@ -344,6 +348,42 @@ def demo_login(user: CurrentUser = Depends(current_user)) -> Any:
         "mode": "DEMO_HEADER_AUTH",
         "warning": "운영 배포 시 OIDC/SSO Adapter로 교체해야 합니다.",
     }
+
+
+def _account_id(email: str) -> UUID:
+    return uuid5(NAMESPACE_URL, f"arip-user:{email}")
+
+
+def _password_digest(password: str, salt: str) -> str:
+    return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 200_000).hex()
+
+
+@router.post("/auth/signup", status_code=201)
+def signup(payload: AccountCredentials) -> Any:
+    account_id = _account_id(payload.email)
+    existing = repository.database_state_object("UserAccount", account_id) if repository._db_ready else repository.user_accounts.get(account_id)
+    if existing is not None:
+        raise HTTPException(409, "email is already registered")
+    salt = secrets.token_hex(16)
+    account = UserAccount(
+        id=account_id,
+        email=payload.email,
+        password_salt=salt,
+        password_hash=_password_digest(payload.password, salt),
+    )
+    repository.save(account)
+    return {"email": account.email}
+
+
+@router.post("/auth/login")
+def login(payload: AccountCredentials) -> Any:
+    account_id = _account_id(payload.email)
+    account = repository.database_state_object("UserAccount", account_id) if repository._db_ready else repository.user_accounts.get(account_id)
+    if not isinstance(account, UserAccount) or not hmac.compare_digest(
+        account.password_hash, _password_digest(payload.password, account.password_salt)
+    ):
+        raise HTTPException(401, "email or password is incorrect")
+    return {"email": account.email}
 
 
 @router.post("/runtime/reload-from-database")

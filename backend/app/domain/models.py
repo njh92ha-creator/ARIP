@@ -92,6 +92,14 @@ class CompanySettings:
 
 
 @dataclass(slots=True)
+class UserAccount:
+    email: str
+    password_salt: str
+    password_hash: str
+    id: UUID = field(default_factory=uuid4)
+
+
+@dataclass(slots=True)
 class MaterialityProfile:
     company_id: UUID
     name: str

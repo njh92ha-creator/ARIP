@@ -34,6 +34,7 @@ from .models import (
     RiskReviewQuestionStatus,
     RiskMemoryEntry,
     SettlementBalance,
+    UserAccount,
     VarianceObservation,
     VarianceException,
     VarianceProfile,
@@ -144,6 +145,7 @@ class InMemoryRepository:
     def __init__(self, *, persistent: bool | None = None) -> None:
         self._lock = RLock()
         self.companies: dict[UUID, CompanySettings] = {}
+        self.user_accounts: dict[UUID, UserAccount] = {}
         self.materiality_profiles: dict[UUID, MaterialityProfile] = {}
         self.variance_profiles: dict[UUID, VarianceProfile] = {}
         self.mapping_profiles: dict[UUID, MappingProfile] = {}
@@ -239,6 +241,7 @@ class InMemoryRepository:
                     hydrate_legacy_object(obj)
                     store_name = {
                         "CompanySettings": "companies",
+                        "UserAccount": "user_accounts",
                         "MaterialityProfile": "materiality_profiles",
                         "VarianceProfile": "variance_profiles",
                         "MappingProfile": "mapping_profiles",
@@ -285,6 +288,7 @@ class InMemoryRepository:
         """Replace this instance's cached state with the current database state."""
         with self._lock:
             self.companies.clear()
+            self.user_accounts.clear()
             self.materiality_profiles.clear()
             self.variance_profiles.clear()
             self.mapping_profiles.clear()
@@ -455,6 +459,7 @@ class InMemoryRepository:
         with self._lock:
             stores: dict[type[Any], dict[Any, Any]] = {
                 CompanySettings: self.companies,
+                UserAccount: self.user_accounts,
                 MaterialityProfile: self.materiality_profiles,
                 VarianceProfile: self.variance_profiles,
                 MappingProfile: self.mapping_profiles,
