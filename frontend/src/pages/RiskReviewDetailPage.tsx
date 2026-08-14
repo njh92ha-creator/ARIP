@@ -322,6 +322,9 @@ export function RiskReviewDetailPage() {
   const [exposureOpen, setExposureOpen] = useState(false)
   const [remediationOpen, setRemediationOpen] = useState(false)
   const [remediationActions, setRemediationActions] = useState('')
+  const [headerCollapsed, setHeaderCollapsed] = useState(false)
+  const leftWorkspaceRef = useRef<HTMLDivElement>(null)
+  const rightWorkspaceRef = useRef<HTMLDivElement>(null)
   const { data: companies, isLoading: isCompanyLoading, isError: isCompanyError } = useQuery({
     queryKey: ['companies'],
     queryFn: async () => (await api.get<Company[]>('/companies')).data,
@@ -443,14 +446,17 @@ export function RiskReviewDetailPage() {
   const answersByQuestion = new Map(questions.map((question) => [question, reviewCase.answers.filter((item) => item.question === question)]))
   const statusByQuestion = new Map(reviewCase.question_statuses.map((item) => [item.question, item.status]))
   const assessmentByQuestion = new Map(reviewCase.question_assessments.map((item) => [item.question, item]))
+  const updateHeaderCollapsed = () => setHeaderCollapsed(
+    (leftWorkspaceRef.current?.scrollTop ?? 0) > 24 || (rightWorkspaceRef.current?.scrollTop ?? 0) > 24,
+  )
 
   return <Box>
     <Typography component={Link} to="/events" variant="body2" sx={{ color: primary, textDecoration: 'none', fontWeight: 700 }}>← 검토 목록</Typography>
-    <Stack direction={{ xs: 'column', lg: 'row' }} justifyContent="space-between" alignItems={{ lg: 'flex-end' }} spacing={2} sx={{ mt: 1.5, mb: 3 }}>
+    <Stack direction={{ xs: 'column', lg: 'row' }} justifyContent="space-between" alignItems={{ lg: 'center' }} spacing={2} sx={{ mt: 1.5, mb: headerCollapsed ? 1.5 : 3, transition: 'margin .2s ease' }}>
       <Box>
-        <Typography variant="h4">{reviewCase.title}</Typography>
-        <Typography color="text.secondary" sx={{ mt: .5 }}>리스크 ID · {reviewCase.risk_code || '-'}</Typography>
-        <Stack direction="row" spacing={1} sx={{ mt: 1.25 }}><Chip label={reviewCase.status} size="small" /><Chip label={`이관 ${formatDate(reviewCase.transferred_at)}`} size="small" variant="outlined" /></Stack>
+        <Typography variant={headerCollapsed ? 'h6' : 'h4'} noWrap sx={{ transition: 'font-size .2s ease' }}>{reviewCase.title}</Typography>
+        <Typography color="text.secondary" sx={{ mt: headerCollapsed ? 0 : .5, fontSize: headerCollapsed ? 12 : undefined }}>리스크 ID · {reviewCase.risk_code || '-'}</Typography>
+        {!headerCollapsed && <Stack direction="row" spacing={1} sx={{ mt: 1.25 }}><Chip label={reviewCase.status} size="small" /><Chip label={`이관 ${formatDate(reviewCase.transferred_at)}`} size="small" variant="outlined" /></Stack>}
       </Box>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ minWidth: { sm: 360 } }}>
         <Button
@@ -486,15 +492,16 @@ export function RiskReviewDetailPage() {
             {Object.entries(severityLabel).map(([value, label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}
           </Select>
         </FormControl>
+        {headerCollapsed && <Button variant="outlined" size="small" onClick={() => setHeaderCollapsed(false)}>상세 보기</Button>}
       </Stack>
     </Stack>
     {controlError ? <Alert severity="error" sx={{ mb: 2 }}>{controlError}</Alert> : null}
     {reviewCase.review_decision === 'PASS' ? <Alert severity="success" sx={{ mb: 2 }}>Pass로 분류되어 검토 목록에서는 숨겨집니다. 이 상세 경로는 계속 사용할 수 있습니다.</Alert> : null}
-    <Card sx={cardSx}><CardContent sx={{ p: 2.25, '&:last-child': { pb: 2.25 } }}><Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '220px 220px minmax(0, 1fr)' }, alignItems: 'stretch' }}><Box sx={{ pr: { md: 2.5 }, borderRight: { md: `1px solid ${border}` } }}><Typography fontWeight={700}>노출금액</Typography><Typography sx={{ mt: .5, fontSize: 22, fontWeight: 700 }}>{reviewCase.exposure_amount ? `${new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 2 }).format(reviewCase.exposure_amount / 1_000_000)}백만원` : '미입력'}</Typography><Button size="small" variant="outlined" sx={{ mt: 1.25 }} onClick={() => setExposureOpen(true)}>입력·수정</Button></Box><Box sx={{ px: { md: 2.5 }, py: { xs: 2, md: 0 }, borderRight: { md: `1px solid ${border}` }, borderTop: { xs: `1px solid ${border}`, md: 'none' } }}><Typography fontWeight={700}>산정 근거</Typography><Typography color="text.secondary" variant="body2" sx={{ mt: .75, whiteSpace: 'pre-wrap', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{reviewCase.exposure_basis || '입력된 산정 근거가 없습니다.'}</Typography></Box><Box sx={{ pl: { md: 2.5 }, pt: { xs: 2, md: 0 }, borderTop: { xs: `1px solid ${border}`, md: 'none' } }}><Stack direction="row" justifyContent="space-between" spacing={2}><Box sx={{ minWidth: 0 }}><Typography fontWeight={700}>수정/조치사항</Typography><Typography color="text.secondary" variant="body2" sx={{ mt: .75, whiteSpace: 'pre-wrap', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{remediationActions || '입력된 수정/조치사항이 없습니다.'}</Typography></Box><Button size="small" variant="text" sx={{ flex: '0 0 auto' }} onClick={() => setRemediationOpen(true)}>수정</Button></Stack></Box></Box></CardContent></Card>
+    <Card sx={{ ...cardSx, display: headerCollapsed ? 'none' : 'block' }}><CardContent sx={{ p: 2.25, '&:last-child': { pb: 2.25 } }}><Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '220px 220px minmax(0, 1fr)' }, alignItems: 'stretch' }}><Box sx={{ pr: { md: 2.5 }, borderRight: { md: `1px solid ${border}` } }}><Typography fontWeight={700}>노출금액</Typography><Typography sx={{ mt: .5, fontSize: 22, fontWeight: 700 }}>{reviewCase.exposure_amount ? `${new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 2 }).format(reviewCase.exposure_amount / 1_000_000)}백만원` : '미입력'}</Typography><Button size="small" variant="outlined" sx={{ mt: 1.25 }} onClick={() => setExposureOpen(true)}>입력·수정</Button></Box><Box sx={{ px: { md: 2.5 }, py: { xs: 2, md: 0 }, borderRight: { md: `1px solid ${border}` }, borderTop: { xs: `1px solid ${border}`, md: 'none' } }}><Typography fontWeight={700}>산정 근거</Typography><Typography color="text.secondary" variant="body2" sx={{ mt: .75, whiteSpace: 'pre-wrap', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{reviewCase.exposure_basis || '입력된 산정 근거가 없습니다.'}</Typography></Box><Box sx={{ pl: { md: 2.5 }, pt: { xs: 2, md: 0 }, borderTop: { xs: `1px solid ${border}`, md: 'none' } }}><Stack direction="row" justifyContent="space-between" spacing={2}><Box sx={{ minWidth: 0 }}><Typography fontWeight={700}>수정/조치사항</Typography><Typography color="text.secondary" variant="body2" sx={{ mt: .75, whiteSpace: 'pre-wrap', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{remediationActions || '입력된 수정/조치사항이 없습니다.'}</Typography></Box><Button size="small" variant="text" sx={{ flex: '0 0 auto' }} onClick={() => setRemediationOpen(true)}>수정</Button></Stack></Box></Box></CardContent></Card>
     <Dialog open={exposureOpen} onClose={() => setExposureOpen(false)} fullWidth maxWidth="sm"><DialogTitle>리스크 노출금액</DialogTitle><DialogContent><Stack spacing={2} sx={{ pt: 1 }}><TextField label="노출금액 (KRW)" value={exposureAmount} onChange={(event) => { const digits = event.target.value.replaceAll(/[^0-9]/g, ''); setExposureAmount(digits ? new Intl.NumberFormat('ko-KR').format(Number(digits)) : '') }} inputMode="numeric" /><TextField label="산정 근거" multiline minRows={4} value={exposureBasis} onChange={(event) => setExposureBasis(event.target.value)} />{exposure.isError ? <Alert severity="error">노출금액을 저장하지 못했습니다.</Alert> : null}</Stack></DialogContent><DialogActions><Button onClick={() => setExposureOpen(false)}>닫기</Button><Button variant="contained" disabled={exposure.isPending} onClick={() => exposure.mutate()}>{exposure.isPending ? '저장 중' : '저장'}</Button></DialogActions></Dialog>
     <Dialog open={remediationOpen} onClose={() => setRemediationOpen(false)} fullWidth maxWidth="md"><DialogTitle>수정/조치사항</DialogTitle><DialogContent><Stack spacing={2} sx={{ pt: 1 }}><TextField fullWidth multiline minRows={7} value={remediationActions} onChange={(event) => setRemediationActions(event.target.value)} placeholder="수정 또는 조치사항을 입력하세요." />{remediation.isError ? <Alert severity="error">{errorMessage(remediation.error, '수정/조치사항을 저장하지 못했습니다.')}</Alert> : null}</Stack></DialogContent><DialogActions><Button onClick={() => setRemediationOpen(false)}>닫기</Button><Button variant="contained" disabled={remediation.isPending} onClick={() => remediation.mutate()}>{remediation.isPending ? '저장 중' : '저장'}</Button></DialogActions></Dialog>
-    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(0, 1.65fr) minmax(340px, .9fr)' }, gap: 3, alignItems: { xs: 'start', lg: 'stretch' }, mt: 3, height: { lg: 'calc(100vh - 330px)' }, minHeight: 0 }}>
-    <Stack spacing={3} sx={{ height: { lg: '100%' }, minHeight: 0, overflowY: { lg: 'auto' }, overscrollBehavior: { lg: 'contain' }, pr: { lg: 1 }, scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' }, '& > .MuiCard-root': { flexShrink: 0 } }}>
+    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(0, 1.65fr) minmax(340px, .9fr)' }, gap: 3, alignItems: { xs: 'start', lg: 'stretch' }, mt: headerCollapsed ? 1.5 : 3, height: { lg: `calc(100vh - ${headerCollapsed ? 170 : 330}px)` }, minHeight: 0, transition: 'margin .2s ease' }}>
+    <Stack ref={leftWorkspaceRef} onScroll={updateHeaderCollapsed} spacing={3} sx={{ height: { lg: '100%' }, minHeight: 0, overflowY: { lg: 'auto' }, overscrollBehavior: { lg: 'contain' }, pr: { lg: 1 }, scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' }, '& > .MuiCard-root': { flexShrink: 0 } }}>
       <Card sx={{ ...cardSx, display: 'none' }}><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
         <SectionTitle>리스크 노출금액</SectionTitle>
         <Stack spacing={1.5} sx={{ mt: 2 }}>
@@ -513,7 +520,7 @@ export function RiskReviewDetailPage() {
         <OverallAssessmentCard reviewCaseId={reviewCase.id} cacheKey={riskCode} hasAnswers={reviewCase.answers.some((item) => item.answer.trim().length > 0)} assessment={reviewCase.overall_assessment} />
       </CardContent></Card>
     </Stack>
-    <Stack spacing={3} sx={{ height: { lg: '100%' }, minHeight: 0, overflowY: { lg: 'auto' }, overscrollBehavior: { lg: 'contain' }, pr: { lg: 1 }, scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' }, '& > .MuiCard-root': { flexShrink: 0 } }}>
+    <Stack ref={rightWorkspaceRef} onScroll={updateHeaderCollapsed} spacing={3} sx={{ height: { lg: '100%' }, minHeight: 0, overflowY: { lg: 'auto' }, overscrollBehavior: { lg: 'contain' }, pr: { lg: 1 }, scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' }, '& > .MuiCard-root': { flexShrink: 0 } }}>
       <SnapshotCard reviewCase={reviewCase} />
       <AttachmentCard reviewCase={reviewCase} cacheKey={riskCode} />
     </Stack></Box>
