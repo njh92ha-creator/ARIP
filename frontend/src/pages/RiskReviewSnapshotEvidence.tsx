@@ -16,6 +16,7 @@ const border = '#E5E7EB'
 type SnapshotPackage = Risk['package']
 
 export function RiskReviewSnapshotEvidence({ package: pkg }: { package: SnapshotPackage }) {
+  const similarReviewCases = pkg.review_similarity_cases ?? []
   const references = pkg.standards_evidence?.length
     ? pkg.standards_evidence
     : (pkg.references ?? []).map((reference) => ({
@@ -59,5 +60,14 @@ export function RiskReviewSnapshotEvidence({ package: pkg }: { package: Snapshot
         {reference.url ? <Link href={reference.url} target="_blank" rel="noreferrer" variant="body2" sx={{ display: 'inline-block', mt: .75 }}>원문 열기</Link> : null}
       </Box>)}</Stack> : <Typography color="text.secondary">확인 가능한 기준서 근거가 없습니다.</Typography>}
     </Box>
+
+    {similarReviewCases.length ? <Box>
+      <Typography fontWeight={700} sx={{ mb: 1.25 }}>유사사례검색</Typography>
+      <Stack spacing={1.25}>{similarReviewCases.map((reviewCase) => <Box key={reviewCase.riskCode} sx={{ p: 1.5, border: `1px solid ${border}`, borderRadius: 2, bgcolor: '#EFF8FF' }}>
+        <Typography fontWeight={700} variant="body2">유사 클리어 검토 사례 · {Math.round(reviewCase.similarity * 100)}%</Typography>
+        <Link href={`/risk-reviews/${encodeURIComponent(reviewCase.riskCode)}`} variant="body2" sx={{ display: 'inline-block', mt: .75, fontWeight: 700 }}>{reviewCase.riskCode} · {reviewCase.title}</Link>
+        <Typography color="text.secondary" variant="body2" sx={{ mt: .5 }}>검토 분류 {reviewCase.reviewDecision} · 심각도 {reviewCase.severity}</Typography>
+      </Box>)}</Stack>
+    </Box> : null}
   </Stack>
 }
