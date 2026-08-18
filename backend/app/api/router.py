@@ -1404,7 +1404,7 @@ def assess_risk_review_overall(review_case_id: UUID) -> Any:
         "exposureBasis": review_case.exposure_basis,
         "remediationActions": review_case.remediation_actions,
         "status": review_case.status,
-        "transferredAt": review_case.transferred_at,
+        "transferredAt": encode(review_case.transferred_at),
         "analysisSnapshot": encode(review_case.package),
     }
     try:
