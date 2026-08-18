@@ -1394,6 +1394,19 @@ def assess_risk_review_overall(review_case_id: UUID) -> Any:
         for item in repository.question_assessments_for_review_case(review_case_id)
         if item.question not in excluded_questions
     }
+    review_context = {
+        "riskCode": review_case.risk_code,
+        "title": review_case.title,
+        "riskStatement": review_case.statement,
+        "reviewDecision": review_case.review_decision,
+        "severity": review_case.severity,
+        "exposureAmount": review_case.exposure_amount,
+        "exposureBasis": review_case.exposure_basis,
+        "remediationActions": review_case.remediation_actions,
+        "status": review_case.status,
+        "transferredAt": review_case.transferred_at,
+        "analysisSnapshot": encode(review_case.package),
+    }
     try:
         assessment = assess_review_overall(
             audit_issues=review_case.package.audit_issues,
@@ -1406,6 +1419,7 @@ def assess_risk_review_overall(review_case_id: UUID) -> Any:
             ])),
             answers_by_question=answers_by_question,
             question_assessments=question_assessments,
+            review_context=review_context,
             provider=options["ai_provider"],
             model=options["ai_model"],
             api_key_env=options["ai_key_env"],

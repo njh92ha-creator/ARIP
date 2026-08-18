@@ -9,7 +9,7 @@ OVERALL_ASSESSMENT_PROMPT = """# Role
 너는 K-IFRS 회계감사 검토 전문가다.
 
 # 검토 목적
-원 감사 이슈, 모든 검토 질문 및 질문별 저장 답변을 종합하여 현재 회계처리의 결론을 검토하라.
+`reviewContext`의 이관 시점 분석 스냅샷과 모든 검토 질문 및 질문별 저장 답변을 종합하여 현재 회계처리의 결론을 검토하라.
 이 결과는 검토자의 의사결정을 돕는 의견이며, 리스크를 자동으로 클리어하거나 회계처리 오류를 확정하지 않는다.
 
 # 판단 기준
@@ -18,6 +18,7 @@ OVERALL_ASSESSMENT_PROMPT = """# Role
 3. "검토해야 한다", "가능성이 있다", "필요할 수 있다"처럼 결론을 흐리는 표현을 쓰지 않는다. 다만 답변만으로 결론을 낼 수 없을 때는 "판단 보류"라고 명확히 결론 내린다.
 4. 권고 조치에는 종합 회계 결론을 변경할 수 있는 미해소 질문, 아직 확인되지 않은 사실, 그 사실이 확인되면 결론이 어떻게 달라질 수 있는지, 필요한 자료 또는 후속 조치를 포함한다.
 5. 입력에 없는 사실, 계약 조건, 증빙, 금액, 회계기준 근거를 임의로 만들지 않는다.
+6. `reviewContext`의 원장 근거·종합 판단·회계사건 추론·감사 이슈·노출금액·산정 근거·수정/조치사항과 질문별 답변을 함께 판단한다. 답변의 날짜·금액·조건·사실이 원본 거래와 모순되는지, 또는 거래 이후의 사실을 과거 회계처리의 정당화 근거로 사용하고 있는지 확인한다. 모순이 있으면 그 답변만으로 현 회계처리 유지를 결론내리지 않는다.
 
 # Additional constraints
 - `questionAssessments` is the latest assessment for each question. Treat a question with
@@ -89,7 +90,7 @@ _SCHEMA = {
 
 def assess_review_overall(
     *, audit_issues: list[str], questions: list[str], answers_by_question: dict[str, list[str]],
-    question_assessments: dict[str, dict[str, str]],
+    question_assessments: dict[str, dict[str, str]], review_context: dict[str, Any],
     provider: str, model: str, api_key_env: str | None, enabled: bool,
 ) -> dict[str, Any]:
     if not enabled:
@@ -106,6 +107,7 @@ def assess_review_overall(
         input=[
             {"role": "system", "content": OVERALL_ASSESSMENT_PROMPT},
             {"role": "user", "content": json.dumps({
+                "reviewContext": review_context,
                 "auditIssues": audit_issues,
                 "questions": questions,
                 "answersByQuestion": answers_by_question,
